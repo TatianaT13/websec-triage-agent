@@ -9,14 +9,26 @@ from datetime import datetime, timezone
 
 
 def build_result(url: str) -> dict:
-    """Fetch + run the full heuristic pipeline, returning one result dict."""
+    """Fetch + run the full pipeline (heuristic score, and the trained ML
+    classifier when available), returning one result dict with a single
+    combined verdict instead of two opinions the caller has to reconcile."""
+    from . import verdict as vd
     from . import web_analysis as wa
 
     fetched = wa.fetch_html(url)
     html = fetched["html"]
     structure = wa.analyze_structure(html, fetched["final_url"])
     iocs = wa.extract_iocs(html, fetched["final_url"])
-    verdict = wa.score_phishing(html, structure, iocs, fetched["final_url"])
+    heuristic = wa.score_phishing(html, structure, iocs, fetched["final_url"])
+
+    ml = None
+    try:
+        from . import classifier as clf
+
+        ml = clf.classify_webpage(html, fetched["final_url"])
+    except RuntimeError:
+        pass  # MLOps extras not installed, or no trained model yet - degrade gracefully
+
     return {
         "requested_url": url,
         "final_url": fetched["final_url"],
@@ -24,14 +36,18 @@ def build_result(url: str) -> dict:
         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "structure": structure,
         "iocs": iocs,
-        "phishing_heuristic": verdict,
+        "phishing_heuristic": heuristic,
+        "ml_classifier": ml,
+        "verdict": vd.combine_verdicts(heuristic, ml),
     }
 
 
 def build_markdown_report(result: dict) -> str:
     structure = result["structure"]
     iocs = result["iocs"]
-    verdict = result["phishing_heuristic"]
+    heuristic = result["phishing_heuristic"]
+    ml = result.get("ml_classifier")
+    combined = result.get("verdict")
 
     forms_lines = "\n".join(
         f"  - action=`{f['action']}` method={f['method']} "
@@ -39,10 +55,26 @@ def build_markdown_report(result: dict) -> str:
         for f in structure["forms"]
     ) or "  - (none)"
 
-    reasons_lines = "\n".join(f"- {r}" for r in verdict["reasons"]) or "- (none)"
+    reasons_lines = "\n".join(f"- {r}" for r in heuristic["reasons"]) or "- (none)"
 
     def _list_or_none(values):
         return ", ".join(values) if values else "(none)"
+
+    verdict_section = ""
+    if combined:
+        ml_line = (
+            f"- **Classifieur ML** : {ml['label']} (probabilité phishing {ml['phishing_probability']:.2f})"
+            if ml
+            else "- **Classifieur ML** : indisponible (extras MLOps non installés ou pas de modèle entraîné)"
+        )
+        verdict_section = f"""
+## Verdict combiné
+
+**{combined['label'].upper()}** — {combined['confidence']}
+
+- **Score heuristique** : niveau {heuristic['level']} (score {heuristic['score']})
+{ml_line}
+"""
 
     return f"""# Rapport de triage web — {result['requested_url']}
 
@@ -50,10 +82,10 @@ def build_markdown_report(result: dict) -> str:
 - **Code HTTP** : {result['status_code']}
 - **Récupéré le** : {result['fetched_at']}
 - **Titre de la page** : {structure['title'] or '(aucun)'}
-
+{verdict_section}
 ## Score heuristique de phishing
 
-**Niveau : {verdict['level'].upper()}** (score {verdict['score']})
+**Niveau : {heuristic['level'].upper()}** (score {heuristic['score']})
 
 Raisons :
 {reasons_lines}
@@ -96,11 +128,15 @@ def build_ioc_bundle(result: dict) -> dict:
     for d in iocs["punycode_domains"]:
         indicators.append({"type": "domain-punycode", "value": d})
 
+    combined = result.get("verdict")
+    ml = result.get("ml_classifier")
     return {
         "source_url": result["requested_url"],
         "fetched_at": result["fetched_at"],
+        "verdict_label": combined["label"] if combined else None,
         "verdict_level": result["phishing_heuristic"]["level"],
         "verdict_score": result["phishing_heuristic"]["score"],
+        "ml_phishing_probability": ml["phishing_probability"] if ml else None,
         "indicators": indicators,
     }
 

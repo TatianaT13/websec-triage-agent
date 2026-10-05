@@ -57,8 +57,37 @@ def test_ioc_bundle_shape():
     bundle = build_ioc_bundle(SAMPLE_RESULT)
     assert bundle["verdict_level"] == "medium"
     assert bundle["verdict_score"] == 4
+    assert bundle["verdict_label"] is None  # no "verdict" key -> ML wasn't available
     types = {i["type"] for i in bundle["indicators"]}
     assert "url" in types
     assert "domain" in types
     domains = {i["value"] for i in bundle["indicators"] if i["type"] == "domain"}
     assert "cdn.other-host.example" in domains
+
+
+def test_markdown_report_without_ml_omits_combined_section():
+    md = build_markdown_report(SAMPLE_RESULT)
+    assert "Verdict combiné" not in md
+
+
+def test_markdown_report_with_ml_includes_combined_section():
+    result = {
+        **SAMPLE_RESULT,
+        "ml_classifier": {"label": "phishing", "phishing_probability": 0.87, "model_version": "x"},
+        "verdict": {"label": "phishing", "confidence": "both signals agree", "agreement": True},
+    }
+    md = build_markdown_report(result)
+    assert "Verdict combiné" in md
+    assert "PHISHING" in md
+    assert "0.87" in md
+
+
+def test_ioc_bundle_includes_combined_verdict_when_available():
+    result = {
+        **SAMPLE_RESULT,
+        "ml_classifier": {"label": "phishing", "phishing_probability": 0.87, "model_version": "x"},
+        "verdict": {"label": "phishing", "confidence": "both signals agree", "agreement": True},
+    }
+    bundle = build_ioc_bundle(result)
+    assert bundle["verdict_label"] == "phishing"
+    assert bundle["ml_phishing_probability"] == 0.87

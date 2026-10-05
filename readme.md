@@ -12,9 +12,9 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 
 ## Fonctionnalités
 
-- **`analyze_webpage`** : fetch sécurisé (garde-fou anti-SSRF, taille limitée) + structure de la page (formulaires, scripts externes, iframes, favicon) + IOC (domaines, emails, domaines punycode, URLs en IP brute, TLD suspects) + score de phishing heuristique avec raisons.
+- **`analyze_webpage`** : fetch sécurisé (garde-fou anti-SSRF, taille limitée) + structure de la page (formulaires, scripts externes, iframes, favicon) + IOC (domaines, emails, domaines punycode, URLs en IP brute, TLD suspects) + score de phishing heuristique avec raisons + probabilité du classifieur ML (si dispo) + **un verdict combiné unique** (`phishing`/`benign`/`uncertain`) qui réconcilie les deux signaux au lieu de laisser deux avis séparés — voir `websec_agent/verdict.py`.
 - **`export_report`** : génère un rapport Markdown + un bundle IOC JSON sur disque, directement depuis les heuristiques (pas d'appel LLM supplémentaire, déterministe) — utilisable aussi en CLI pure via `python scripts/export_report.py <url> [out_dir]`.
-- **`ml_classify_webpage`** (optionnel, nécessite les dépendances MLOps) : score phishing/bénin par un modèle entraîné (régression logistique sur features structurelles/IOC), en complément du score heuristique — voir *MLOps* ci-dessous.
+- **`ml_classify_webpage`** (optionnel, nécessite les dépendances MLOps) : appel autonome au classifieur entraîné seul, sans le reste du pipeline — utile pour un score ML rapide. `analyze_webpage` l'inclut déjà dans son verdict combiné.
 - **`ask_webpage`** (optionnel, nécessite les dépendances ML) : QA en langage naturel sur le contenu d'une page via MarkupLM.
 
 ## Installation
@@ -90,6 +90,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── web_analysis.py         # fetch + heuristiques (structure, IOC, score phishing, QA MarkupLM)
 │   ├── features.py             # vecteur de features numériques pour le classifieur
 │   ├── classifier.py           # inférence du modèle entraîné (chargement lazy)
+│   ├── verdict.py               # combine score heuristique + ML en un verdict unique
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
 ├── training/
@@ -106,6 +107,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_heuristics.py      # tests de non-régression basés sur de vrais cas calibrés
 │   ├── test_features.py        # tests du vecteur de features
 │   ├── test_classifier.py      # tests de forme/plage sur l'inférence (pas de label figé)
+│   ├── test_verdict.py         # tests de la logique de combinaison heuristique + ML
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR

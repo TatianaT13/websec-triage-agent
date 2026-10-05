@@ -9,30 +9,17 @@ from . import web_analysis as wa
 @tool(
     "analyze_webpage",
     "Fetch a URL and run a full defensive-security triage: page structure, "
-    "extracted IOCs (domains, emails, punycode/IP links), and a phishing "
-    "heuristic score with concrete reasons.",
+    "extracted IOCs (domains, emails, punycode/IP links), the heuristic "
+    "phishing score with reasons, the trained ML classifier's probability "
+    "(when available), and one combined verdict reconciling the two.",
     {"url": str},
 )
 async def analyze_webpage(args):
-    url = args["url"]
     try:
-        fetched = wa.fetch_html(url)
+        result = rpt.build_result(args["url"])
     except wa.FetchError as exc:
         return {"content": [{"type": "text", "text": f"Fetch blocked or failed: {exc}"}], "is_error": True}
-
-    html = fetched["html"]
-    structure = wa.analyze_structure(html, fetched["final_url"])
-    iocs = wa.extract_iocs(html, fetched["final_url"])
-    verdict = wa.score_phishing(html, structure, iocs, fetched["final_url"])
-
-    report = {
-        "final_url": fetched["final_url"],
-        "status_code": fetched["status_code"],
-        "structure": structure,
-        "iocs": iocs,
-        "phishing_heuristic": verdict,
-    }
-    return {"content": [{"type": "text", "text": str(report)}]}
+    return {"content": [{"type": "text", "text": str(result)}]}
 
 
 @tool(
@@ -65,7 +52,7 @@ async def export_report(args):
     text = (
         f"Report written to {outcome['report_path']}\n"
         f"IOC bundle written to {outcome['ioc_path']}\n"
-        f"Level: {outcome['result']['phishing_heuristic']['level']}"
+        f"Verdict: {outcome['result']['verdict']['label']}"
     )
     return {"content": [{"type": "text", "text": text}]}
 

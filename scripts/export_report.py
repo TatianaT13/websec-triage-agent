@@ -22,7 +22,7 @@ def main() -> None:
     outcome = report.export(url, out_dir)
     print(f"Rapport : {outcome['report_path']}")
     print(f"IOC     : {outcome['ioc_path']}")
-    print(f"Niveau  : {outcome['result']['phishing_heuristic']['level']}")
+    print(f"Verdict : {outcome['result']['verdict']['label']} ({outcome['result']['verdict']['confidence']})")
 
 
 if __name__ == "__main__":
