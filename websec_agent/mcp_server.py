@@ -1,6 +1,7 @@
 """MCP tool definitions exposed to the Claude Agent SDK agent."""
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import classifier as clf
 from . import report as rpt
 from . import web_analysis as wa
 
@@ -69,8 +70,25 @@ async def export_report(args):
     return {"content": [{"type": "text", "text": text}]}
 
 
+@tool(
+    "ml_classify_webpage",
+    "Fetch a URL and score it with the trained phishing/benign classifier "
+    "(logistic regression on structural+IOC features, trained on real "
+    "OpenPhish samples). Complements analyze_webpage's rule-based score with "
+    "a learned probability. Requires the MLOps extras and a trained model.",
+    {"url": str},
+)
+async def ml_classify_webpage(args):
+    try:
+        fetched = wa.fetch_html(args["url"])
+        result = clf.classify_webpage(fetched["html"], fetched["final_url"])
+    except (wa.FetchError, RuntimeError) as exc:
+        return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+
 websec_server = create_sdk_mcp_server(
     name="websec",
     version="0.1.0",
-    tools=[analyze_webpage, ask_webpage, export_report],
+    tools=[analyze_webpage, ask_webpage, export_report, ml_classify_webpage],
 )

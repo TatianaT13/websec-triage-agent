@@ -34,6 +34,7 @@ async def main(prompt: str) -> None:
             "mcp__websec__analyze_webpage",
             "mcp__websec__ask_webpage",
             "mcp__websec__export_report",
+            "mcp__websec__ml_classify_webpage",
         ],
         permission_mode="acceptEdits",
     )

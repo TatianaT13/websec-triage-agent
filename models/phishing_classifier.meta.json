@@ -1,0 +1,62 @@
+{
+  "model_type": "logistic_regression",
+  "trained_at": "2026-10-05T15:27:50+00:00",
+  "dataset": "data/dataset.csv",
+  "n_samples": 88,
+  "n_phish": 50,
+  "n_benign": 38,
+  "feature_names": [
+    "num_forms",
+    "has_password_field",
+    "has_external_password_action",
+    "has_non_https_password_action",
+    "script_src_count",
+    "external_script_ratio",
+    "link_count",
+    "external_link_ratio",
+    "iframe_count",
+    "favicon_is_external",
+    "meta_refresh",
+    "brand_in_title_mismatch",
+    "brand_in_text_mismatch",
+    "domain_count",
+    "punycode_domain_count",
+    "shortener_link_count",
+    "ip_literal_url_count",
+    "suspicious_tld_domain_count",
+    "urgency_word_count",
+    "title_length",
+    "domain_length",
+    "domain_hyphen_count",
+    "domain_digit_count"
+  ],
+  "metrics": {
+    "accuracy": 0.9090909090909091,
+    "precision": 0.8571428571428571,
+    "recall": 1.0,
+    "f1": 0.9230769230769231,
+    "roc_auc": 0.9833333333333334,
+    "cv_f1_mean": 0.8948949914894186,
+    "cv_f1_std": 0.053177856243096434
+  },
+  "all_candidates": {
+    "logistic_regression": {
+      "accuracy": 0.9090909090909091,
+      "precision": 0.8571428571428571,
+      "recall": 1.0,
+      "f1": 0.9230769230769231,
+      "roc_auc": 0.9833333333333334,
+      "cv_f1_mean": 0.8948949914894186,
+      "cv_f1_std": 0.053177856243096434
+    },
+    "random_forest": {
+      "accuracy": 0.9090909090909091,
+      "precision": 0.8571428571428571,
+      "recall": 1.0,
+      "f1": 0.9230769230769231,
+      "roc_auc": 0.9750000000000001,
+      "cv_f1_mean": 0.9264739388578397,
+      "cv_f1_std": 0.05901454021724286
+    }
+  }
+}
