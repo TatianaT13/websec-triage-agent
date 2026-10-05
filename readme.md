@@ -13,7 +13,8 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 ## Fonctionnalités
 
 - **`analyze_webpage`** : fetch sécurisé (garde-fou anti-SSRF, taille limitée) + structure de la page (formulaires, scripts externes, iframes, favicon) + IOC (domaines, emails, domaines punycode, URLs en IP brute, TLD suspects) + score de phishing heuristique avec raisons + probabilité du classifieur ML (si dispo) + **un verdict combiné unique** (`phishing`/`benign`/`uncertain`) qui réconcilie les deux signaux au lieu de laisser deux avis séparés — voir `websec_agent/verdict.py`.
-- **`export_report`** : génère un rapport Markdown + un bundle IOC JSON sur disque, directement depuis les heuristiques (pas d'appel LLM supplémentaire, déterministe) — utilisable aussi en CLI pure via `python scripts/export_report.py <url> [out_dir]`.
+- **`analyze_webpage_rendered`** (optionnel, nécessite les dépendances render) : même pipeline, mais la page est d'abord rendue dans un navigateur headless (Playwright) — utile quand `analyze_webpage` revient suspicieusement vide parce que le contenu (ex. un formulaire de login) est injecté par du JS côté client.
+- **`export_report`** : génère un rapport Markdown + un bundle IOC JSON sur disque, directement depuis les heuristiques (pas d'appel LLM supplémentaire, déterministe) — utilisable aussi en CLI pure via `python scripts/export_report.py <url> [out_dir] [--render]`.
 - **`ml_classify_webpage`** (optionnel, nécessite les dépendances MLOps) : appel autonome au classifieur entraîné seul, sans le reste du pipeline — utile pour un score ML rapide. `analyze_webpage` l'inclut déjà dans son verdict combiné.
 - **`ask_webpage`** (optionnel, nécessite les dépendances ML) : QA en langage naturel sur le contenu d'une page via MarkupLM.
 
@@ -29,6 +30,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # optionnel, pour ask_webpage :
 pip install -r requirements-ml.txt
+# optionnel, pour analyze_webpage_rendered :
+pip install -r requirements-render.txt
+playwright install chromium
 ```
 
 Authentification : connecte-toi avec `node_modules/.bin/claude` (login intégré), ou définis la variable d'environnement `ANTHROPIC_API_KEY` (voir `.env.example`).
@@ -91,6 +95,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── features.py             # vecteur de features numériques pour le classifieur
 │   ├── classifier.py           # inférence du modèle entraîné (chargement lazy)
 │   ├── verdict.py               # combine score heuristique + ML en un verdict unique
+│   ├── render.py                # fetch via navigateur headless (Playwright), optionnel
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
 ├── training/
@@ -108,6 +113,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_features.py        # tests du vecteur de features
 │   ├── test_classifier.py      # tests de forme/plage sur l'inférence (pas de label figé)
 │   ├── test_verdict.py         # tests de la logique de combinaison heuristique + ML
+│   ├── test_render.py          # tests du fetch via navigateur headless
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -115,6 +121,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── requirements-ml.txt
+├── requirements-render.txt
 ├── requirements-mlops.txt
 └── .env.example
 ```
@@ -125,7 +132,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **Comparaison de domaine correcte** (via `tldextract`, suffixes publics `.co.uk`/`.com.mu`/etc. et hébergeurs PaaS comme `vercel.app`/`pages.dev` où chaque sous-domaine est un site distinct) et **détection des domaines-sosies contenant le nom de la marque** (ex. `wetransfer-smoky.vercel.app`) — corrigés après calibration sur de vrais échantillons.
 - **Lacune connue non corrigée** : même nom de marque mais mauvaise extension (ex. `roblox.com.mu` au lieu de `roblox.com`) n'est pas détecté — nécessiterait une liste de domaines légitimes par marque, risquée à maintenir sans faux positifs (beaucoup de marques ont de vraies variantes régionales légitimes, ex. `amazon.fr`).
 - MarkupLM est un backbone de compréhension de document HTML (QA, extraction d'info) — il n'est pas pré-entraîné pour classifier du phishing ; `ask_webpage` sert à interroger le contenu, pas à obtenir un verdict de sécurité direct.
-- Pas de rendu JavaScript : le HTML est analysé tel que reçu, sans exécution de scripts (ok pour l'instant, à étendre avec un headless browser si besoin des pages fortement dynamiques).
+- `analyze_webpage` n'exécute pas le JS par défaut (rapide, mais aveugle à un contenu injecté côté client) ; `analyze_webpage_rendered` couvre ce cas via Playwright, mais c'est à l'agent de détecter qu'une page a besoin du rendu (heuristique simple : page qui semble vide) — pas automatique ni garanti.
+- Le garde-fou anti-SSRF vérifie le nom d'hôte avant la requête initiale mais ne re-vérifie pas après une redirection HTTP — une redirection vers une adresse interne contournerait la protection (limite connue, pas corrigée).
 
 ## Prochaines étapes possibles
 
@@ -133,4 +141,5 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - Filtrage/vérification manuelle des candidats Tranco/PhiUSIIL avant de les labelliser "bénin" (risque de faux négatifs décrit ci-dessus).
 - Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
 - v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
-- Rendu JS (headless browser) pour les pages fortement dynamiques.
+- Re-vérifier le garde-fou SSRF après chaque redirection, pas seulement sur l'URL initiale.
+- Déclencher `analyze_webpage_rendered` automatiquement (plutôt que l'agent devine) quand `analyze_webpage` revient vide pour une page qui ne devrait pas l'être.

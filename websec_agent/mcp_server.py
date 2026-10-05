@@ -1,4 +1,6 @@
 """MCP tool definitions exposed to the Claude Agent SDK agent."""
+import asyncio
+
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import classifier as clf
@@ -19,6 +21,25 @@ async def analyze_webpage(args):
         result = rpt.build_result(args["url"])
     except wa.FetchError as exc:
         return {"content": [{"type": "text", "text": f"Fetch blocked or failed: {exc}"}], "is_error": True}
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+
+@tool(
+    "analyze_webpage_rendered",
+    "Like analyze_webpage, but renders the page in a headless browser first "
+    "(Playwright) so JS-injected content is visible - e.g. a login form "
+    "built client-side that never appears in the raw HTML. Slower and "
+    "heavier: use it when analyze_webpage comes back looking suspiciously "
+    "empty (no forms/links/text) for a page that should have content. "
+    "Requires requirements-render.txt and a one-time `playwright install "
+    "chromium`.",
+    {"url": str},
+)
+async def analyze_webpage_rendered(args):
+    try:
+        result = await asyncio.to_thread(rpt.build_result, args["url"], True)
+    except (wa.FetchError, RuntimeError) as exc:
+        return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
     return {"content": [{"type": "text", "text": str(result)}]}
 
 
@@ -77,5 +98,5 @@ async def ml_classify_webpage(args):
 websec_server = create_sdk_mcp_server(
     name="websec",
     version="0.1.0",
-    tools=[analyze_webpage, ask_webpage, export_report, ml_classify_webpage],
+    tools=[analyze_webpage, analyze_webpage_rendered, ask_webpage, export_report, ml_classify_webpage],
 )

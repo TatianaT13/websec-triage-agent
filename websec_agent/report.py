@@ -8,14 +8,23 @@ import json
 from datetime import datetime, timezone
 
 
-def build_result(url: str) -> dict:
+def build_result(url: str, render: bool = False) -> dict:
     """Fetch + run the full pipeline (heuristic score, and the trained ML
     classifier when available), returning one result dict with a single
-    combined verdict instead of two opinions the caller has to reconcile."""
+    combined verdict instead of two opinions the caller has to reconcile.
+
+    render=True fetches through a headless browser (websec_agent.render)
+    instead of a plain HTTP GET, so JS-injected content is visible - slower
+    and requires requirements-render.txt, so it's opt-in."""
     from . import verdict as vd
     from . import web_analysis as wa
 
-    fetched = wa.fetch_html(url)
+    if render:
+        from . import render as rnd
+
+        fetched = rnd.fetch_rendered_html(url)
+    else:
+        fetched = wa.fetch_html(url)
     html = fetched["html"]
     structure = wa.analyze_structure(html, fetched["final_url"])
     iocs = wa.extract_iocs(html, fetched["final_url"])
@@ -141,13 +150,13 @@ def build_ioc_bundle(result: dict) -> dict:
     }
 
 
-def export(url: str, out_dir: str) -> dict:
+def export(url: str, out_dir: str, render: bool = False) -> dict:
     """Run the pipeline and write report.md + iocs.json into out_dir.
     Returns {"result": ..., "report_path": ..., "ioc_path": ...}."""
     import os
 
     os.makedirs(out_dir, exist_ok=True)
-    result = build_result(url)
+    result = build_result(url, render=render)
 
     report_path = os.path.join(out_dir, "report.md")
     with open(report_path, "w", encoding="utf-8") as f:
