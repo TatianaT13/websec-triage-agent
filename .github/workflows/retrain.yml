@@ -55,5 +55,9 @@ jobs:
             N=$(python -c "import json; print(json.load(open('models/phishing_classifier.meta.json'))['n_samples'])")
             F1=$(python -c "import json; print(f\"{json.load(open('models/phishing_classifier.meta.json'))['metrics']['f1']:.3f}\")")
             git commit -m "Scheduled retrain: dataset grown to $N samples, f1=$F1"
+            # The build+train steps can take minutes against live network
+            # sources, so main may have moved in the meantime - rebase onto
+            # it before pushing instead of racing a bare push.
+            git pull --rebase origin main
             git push
           fi
