@@ -30,7 +30,11 @@ async def main(prompt: str) -> None:
         model=os.environ.get("CLAUDE_AGENT_MODEL", "sonnet"),
         system_prompt=SYSTEM_PROMPT,
         mcp_servers={"websec": websec_server},
-        allowed_tools=["mcp__websec__analyze_webpage", "mcp__websec__ask_webpage"],
+        allowed_tools=[
+            "mcp__websec__analyze_webpage",
+            "mcp__websec__ask_webpage",
+            "mcp__websec__export_report",
+        ],
         permission_mode="acceptEdits",
     )
     async for message in query(prompt=prompt, options=options):

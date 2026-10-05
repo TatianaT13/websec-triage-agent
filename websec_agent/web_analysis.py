@@ -13,17 +13,27 @@ import socket
 from urllib.parse import urljoin, urlsplit
 
 import requests
+import tldextract
 from bs4 import BeautifulSoup
 
 USER_AGENT = "websec-agent/0.1 (+defensive security research tool)"
 MAX_BYTES = 2_000_000
 TIMEOUT_S = 10
 
+# include_psl_private_domains so random subdomains of vercel.app, pages.dev,
+# github.io etc. are treated as their own site, not as "the same domain" as
+# every other tenant on that host.
+_TLD_EXTRACT = tldextract.TLDExtract(include_psl_private_domains=True)
+
 SUSPICIOUS_TLDS = {"zip", "mov", "top", "xyz", "click", "country", "gq", "work"}
 URL_SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd"}
 BRAND_KEYWORDS = [
     "paypal", "microsoft", "apple", "google", "amazon", "netflix", "bank",
     "facebook", "instagram", "outlook", "office365", "wellsfargo", "chase",
+    "wetransfer", "dropbox", "docusign", "linkedin", "coinbase", "binance",
+    "roblox", "steam", "adobe", "icloud", "hsbc", "barclays", "dhl", "fedex",
+    "ups", "usps", "irs", "booking.com", "airbnb", "spotify", "zoom",
+    "github", "discord", "whatsapp", "telegram", "ebay", "wells fargo",
 ]
 URGENCY_WORDS = [
     "verify your account", "suspended", "urgent", "immediately", "click here",
@@ -80,9 +90,23 @@ def _domain_of(url: str) -> str:
 
 
 def _registrable_domain(hostname: str) -> str:
-    """Rough eTLD+1 approximation (last two labels) - good enough for heuristics."""
-    labels = hostname.split(".")
-    return ".".join(labels[-2:]) if len(labels) >= 2 else hostname
+    """Public-suffix-aware eTLD+1 (handles multi-label suffixes like .co.uk,
+    .com.mu, and PaaS hosts like vercel.app/pages.dev where each tenant
+    subdomain is effectively its own site)."""
+    if not hostname:
+        return ""
+    result = _TLD_EXTRACT(hostname)
+    return result.top_domain_under_public_suffix or hostname
+
+
+def _domain_label(hostname: str) -> str:
+    """The registrable label itself, stripped of its public suffix - e.g.
+    'wetransfer-smoky' for wetransfer-smoky.vercel.app, 'roblox' for
+    roblox.com.mu. Used to tell 'is the real brand's domain' apart from
+    'merely contains the brand name' (classic lookalike-domain phishing)."""
+    if not hostname:
+        return ""
+    return _TLD_EXTRACT(hostname).domain.lower()
 
 
 def analyze_structure(html: str, base_url: str) -> dict:
@@ -155,15 +179,26 @@ def extract_iocs(html: str, base_url: str) -> dict:
 def score_phishing(html: str, structure: dict, iocs: dict, base_url: str) -> dict:
     reasons: list[str] = []
     score = 0
-    lower_html = html.lower()
-    title = (structure.get("title") or "").lower()
     base_domain = _registrable_domain(_domain_of(base_url))
+    domain_label = _domain_label(_domain_of(base_url)).replace("-", "")
+    title = (structure.get("title") or "").lower()
+    # Visible text only (not script/style/tag/attribute content) to avoid
+    # matching brand names that only appear in unrelated markup or JS.
+    visible_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True).lower()[:5000]
 
     for brand in BRAND_KEYWORDS:
-        if brand in title or brand in lower_html[:5000]:
-            if brand not in base_domain:
-                score += 2
-                reasons.append(f"brand keyword '{brand}' present but not in site domain ({base_domain})")
+        # Exact match on the domain's own label (hyphen-insensitive), not a
+        # substring check - "wetransfer-smoky" must NOT be treated as "is
+        # wetransfer's domain" just because it contains the brand name.
+        is_real_brand_domain = brand.replace(" ", "") == domain_label
+        pattern = re.compile(r"\b" + re.escape(brand) + r"\b")
+        if pattern.search(title) and not is_real_brand_domain:
+            score += 3
+            reasons.append(f"brand '{brand}' in page title but site domain is '{base_domain}'")
+            break
+        if pattern.search(visible_text) and not is_real_brand_domain:
+            score += 1
+            reasons.append(f"brand '{brand}' mentioned in page text but site domain is '{base_domain}'")
             break
 
     for form in structure.get("forms", []):
@@ -194,7 +229,7 @@ def score_phishing(html: str, structure: dict, iocs: dict, base_url: str) -> dic
         score += 1
         reasons.append(f"resources on commonly-abused TLDs: {iocs['suspicious_tld_domains']}")
 
-    hits = [w for w in URGENCY_WORDS if w in lower_html]
+    hits = [w for w in URGENCY_WORDS if w in visible_text]
     if hits:
         score += min(len(hits), 3)
         reasons.append(f"urgency/social-engineering language: {hits}")

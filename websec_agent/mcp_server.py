@@ -1,6 +1,7 @@
 """MCP tool definitions exposed to the Claude Agent SDK agent."""
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import report as rpt
 from . import web_analysis as wa
 
 
@@ -48,8 +49,28 @@ async def ask_webpage(args):
     return {"content": [{"type": "text", "text": str(answer)}]}
 
 
+@tool(
+    "export_report",
+    "Fetch a URL, run the triage pipeline, and write a Markdown report plus "
+    "a JSON IOC bundle to disk (e.g. for a SOC ticket). Deterministic, no "
+    "extra LLM call - the report is generated straight from the heuristics.",
+    {"url": str, "out_dir": str},
+)
+async def export_report(args):
+    try:
+        outcome = rpt.export(args["url"], args["out_dir"])
+    except wa.FetchError as exc:
+        return {"content": [{"type": "text", "text": f"Fetch blocked or failed: {exc}"}], "is_error": True}
+    text = (
+        f"Report written to {outcome['report_path']}\n"
+        f"IOC bundle written to {outcome['ioc_path']}\n"
+        f"Level: {outcome['result']['phishing_heuristic']['level']}"
+    )
+    return {"content": [{"type": "text", "text": text}]}
+
+
 websec_server = create_sdk_mcp_server(
     name="websec",
     version="0.1.0",
-    tools=[analyze_webpage, ask_webpage],
+    tools=[analyze_webpage, ask_webpage, export_report],
 )

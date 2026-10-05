@@ -1,3 +1,4 @@
 claude-agent-sdk>=0.2.140
 requests>=2.31
 beautifulsoup4>=4.12
+tldextract>=5.1
