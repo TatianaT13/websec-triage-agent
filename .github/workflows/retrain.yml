@@ -1,0 +1,59 @@
+name: retrain
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday at 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  grow-and-retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt -r requirements-mlops.txt
+
+      - name: Grow dataset (OpenPhish + Tranco + PhiUSIIL)
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python training/build_dataset.py 80 data/dataset.csv
+
+      - name: Retrain and promote best model
+        run: python training/train.py data/dataset.csv
+
+      - name: Run test suite against the new model
+        run: pytest tests/ -v
+
+      - name: Sanity-check the new model's F1 before committing
+        run: |
+          python -c "
+          import json
+          card = json.load(open('models/phishing_classifier.meta.json'))
+          f1 = card['metrics']['f1']
+          print(f'New model f1={f1:.3f} ({card[\"model_type\"]}, n={card[\"n_samples\"]})')
+          assert f1 >= 0.5, f'f1={f1:.3f} looks broken - refusing to commit'
+          "
+
+      - name: Commit updated dataset and model
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/dataset.csv models/phishing_classifier.joblib models/phishing_classifier.meta.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            N=$(python -c "import json; print(json.load(open('models/phishing_classifier.meta.json'))['n_samples'])")
+            F1=$(python -c "import json; print(f\"{json.load(open('models/phishing_classifier.meta.json'))['metrics']['f1']:.3f}\")")
+            git commit -m "Scheduled retrain: dataset grown to $N samples, f1=$F1"
+            git push
+          fi

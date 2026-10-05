@@ -70,6 +70,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **Bénin (label=0)** : une petite liste de sites connus choisis à la main, un échantillon aléatoire de [Tranco](https://tranco-list.eu/) (liste de domaines pensée pour la recherche sécu, plus diversifiée qu'un simple top Alexa), et — si `KAGGLE_API_TOKEN` est défini (ou un token dans `~/.kaggle/access_token`) — un échantillon des URLs légitimes du dataset [PhiUSIIL](https://www.kaggle.com/datasets/ndarvind/phiusiil-phishing-url-dataset) (235k lignes, mais on n'utilise que les légitimes : ses URLs de phishing datent de 2024 et sont quasiment toutes mortes).
 - **Risque connu, non filtré** : Tranco et PhiUSIIL sont des classements/datasets tiers, pas vérifiés à la main — un domaine malveillant ou typosquatté qui serait temporairement bien classé pourrait se glisser dans la classe "bénin" (ex. observé en pratique : `paypalverify.net` est apparu comme candidat via Tranco, écarté seulement parce qu'il a timeout). À surveiller si les métriques dérivent anormalement.
 
+**Réentraînement automatique** (`.github/workflows/retrain.yml`) : un job planifié (tous les lundis, ou déclenchable manuellement depuis l'onglet Actions) fait tourner `build_dataset.py` puis `train.py`, vérifie que le F1 du nouveau modèle reste raisonnable, lance les tests, et commit `data/dataset.csv` + `models/` si tout passe. Le secret `KAGGLE_API_TOKEN` est configuré côté repo (GitHub Actions secrets) pour que la source PhiUSIIL fonctionne aussi en CI.
+
 - **Features** (`websec_agent/features.py`) : dérivées de la même analyse de structure/IOC que le score heuristique (formulaires, favicon externe, ratio de scripts/liens externes, marque en titre non alignée avec le domaine, longueur/tirets/chiffres du domaine, etc.) — pas de texte brut, un vecteur numérique fixe.
 - **Tracking** : chaque run (modèle, hyperparamètres, métriques, cross-validation 5-fold) est loggé dans MLflow (`mlflow.db`, backend SQLite local, pas de serveur requis).
 - **Modèle versionné** : le meilleur modèle (par F1 sur le jeu de test) est copié vers `models/phishing_classifier.joblib` + une fiche modèle `models/phishing_classifier.meta.json` (date d'entraînement, taille du dataset, métriques) — c'est ce que charge l'outil `ml_classify_webpage`.
@@ -97,7 +99,13 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ├── scripts/
 │   └── export_report.py        # CLI pure (sans LLM) pour exporter un rapport
 ├── tests/
-│   └── test_heuristics.py      # tests de non-régression basés sur de vrais cas calibrés
+│   ├── test_heuristics.py      # tests de non-régression basés sur de vrais cas calibrés
+│   ├── test_features.py        # tests du vecteur de features
+│   ├── test_classifier.py      # tests de forme/plage sur l'inférence (pas de label figé)
+│   └── test_report.py          # tests du générateur de rapport/IOC
+├── .github/workflows/
+│   ├── tests.yml                # CI : tests sur chaque push/PR
+│   └── retrain.yml              # cron hebdo : grow dataset + réentraîne + commit si sain
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── requirements-ml.txt
