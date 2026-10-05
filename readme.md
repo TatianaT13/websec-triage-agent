@@ -51,8 +51,10 @@ En plus du score heuristique (règles à la main), le projet entraîne un petit 
 ```bash
 pip install -r requirements-mlops.txt
 
-# 1. Construit un dataset labellisé (phishing réel via OpenPhish, bénin via une liste de sites connus)
-python training/build_dataset.py 50 data/dataset.csv
+# 1. Construit/agrandit le dataset labellisé. Idempotent : re-lancer la commande
+#    ajoute de nouvelles URLs sans dupliquer celles déjà présentes (le flux
+#    OpenPhish se renouvelle, donc chaque run peut ramener de nouveaux cas).
+python training/build_dataset.py 80 data/dataset.csv
 
 # 2. Entraîne (logistic regression + random forest), log les runs dans MLflow (SQLite local),
 #    et promeut le meilleur modèle vers models/
@@ -62,10 +64,16 @@ python training/train.py data/dataset.csv
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
+**Sources de données** (`training/build_dataset.py`) :
+
+- **Phishing (label=1)** : flux public [OpenPhish](https://openphish.com/) (~300 URLs vivantes à un instant donné, renouvelées en continu).
+- **Bénin (label=0)** : une petite liste de sites connus choisis à la main, un échantillon aléatoire de [Tranco](https://tranco-list.eu/) (liste de domaines pensée pour la recherche sécu, plus diversifiée qu'un simple top Alexa), et — si `KAGGLE_API_TOKEN` est défini (ou un token dans `~/.kaggle/access_token`) — un échantillon des URLs légitimes du dataset [PhiUSIIL](https://www.kaggle.com/datasets/ndarvind/phiusiil-phishing-url-dataset) (235k lignes, mais on n'utilise que les légitimes : ses URLs de phishing datent de 2024 et sont quasiment toutes mortes).
+- **Risque connu, non filtré** : Tranco et PhiUSIIL sont des classements/datasets tiers, pas vérifiés à la main — un domaine malveillant ou typosquatté qui serait temporairement bien classé pourrait se glisser dans la classe "bénin" (ex. observé en pratique : `paypalverify.net` est apparu comme candidat via Tranco, écarté seulement parce qu'il a timeout). À surveiller si les métriques dérivent anormalement.
+
 - **Features** (`websec_agent/features.py`) : dérivées de la même analyse de structure/IOC que le score heuristique (formulaires, favicon externe, ratio de scripts/liens externes, marque en titre non alignée avec le domaine, longueur/tirets/chiffres du domaine, etc.) — pas de texte brut, un vecteur numérique fixe.
 - **Tracking** : chaque run (modèle, hyperparamètres, métriques, cross-validation 5-fold) est loggé dans MLflow (`mlflow.db`, backend SQLite local, pas de serveur requis).
 - **Modèle versionné** : le meilleur modèle (par F1 sur le jeu de test) est copié vers `models/phishing_classifier.joblib` + une fiche modèle `models/phishing_classifier.meta.json` (date d'entraînement, taille du dataset, métriques) — c'est ce que charge l'outil `ml_classify_webpage`.
-- **Résultats actuels** (88 échantillons, 50 phishing / 38 bénins) : regression logistique retenue, F1 ≈ 0,92, rappel 1,0, ROC-AUC ≈ 0,98 sur le jeu de test (25 %), F1 en cross-validation ≈ 0,90 ± 0,05. **Échelle recherche/démo, pas production** — à réentraîner avec beaucoup plus d'échantillons avant de s'y fier.
+- **Résultats actuels** (366 échantillons, 168 phishing / 198 bénins, après croissance via Tranco + PhiUSIIL) : random forest retenu, F1 ≈ 0,96, précision ≈ 0,98, rappel ≈ 0,95, ROC-AUC ≈ 0,995 sur le jeu de test (25 %), F1 en cross-validation ≈ 0,91 ± 0,02 — en hausse par rapport aux 88 premiers échantillons (F1 ≈ 0,92). Voir `models/phishing_classifier.meta.json` pour les chiffres à jour après chaque réentraînement. **Échelle recherche/démo, pas production** — à réentraîner avec beaucoup plus d'échantillons avant de s'y fier.
 
 ## Structure du projet
 
@@ -108,6 +116,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ## Prochaines étapes possibles
 
 - Liste de domaines légitimes par marque (avec gestion des variantes régionales) pour couvrir le cas "bonne marque, mauvaise extension".
+- Filtrage/vérification manuelle des candidats Tranco/PhiUSIIL avant de les labelliser "bénin" (risque de faux négatifs décrit ci-dessus).
 - Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
 - v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
 - Rendu JS (headless browser) pour les pages fortement dynamiques.

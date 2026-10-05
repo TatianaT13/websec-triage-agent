@@ -10,3 +10,4 @@ out/
 mlflow.db
 mlruns/
 mlartifacts/
+data/.cache/
