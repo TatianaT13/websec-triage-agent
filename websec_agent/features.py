@@ -32,7 +32,17 @@ FEATURE_NAMES = [
     "domain_length",
     "domain_hyphen_count",
     "domain_digit_count",
+    "domain_age_days",
+    "domain_age_unknown",
+    "domain_is_platform_hosted",
 ]
+
+# Sentinel for domain_age_days when the RDAP lookup is unavailable (network
+# failure, no registration event in the record) or not meaningful
+# (platform-hosted subdomain - see domain_age.py). Paired with
+# domain_age_unknown=1 so the model can tell "actually very old" apart from
+# "we don't know", instead of a bare -1 looking like a real tiny/negative age.
+_UNKNOWN_AGE_SENTINEL = -1
 
 
 def extract_features(html: str, base_url: str) -> dict:
@@ -43,6 +53,11 @@ def extract_features(html: str, base_url: str) -> dict:
 
     forms = structure["forms"]
     domain = wa._domain_of(base_url)
+
+    from . import domain_age as da
+
+    age_info = da.lookup_domain_age(domain)
+    age_known = age_info["age_days"] is not None
 
     return {
         "num_forms": len(forms),
@@ -75,6 +90,9 @@ def extract_features(html: str, base_url: str) -> dict:
         "domain_length": len(domain),
         "domain_hyphen_count": domain.count("-"),
         "domain_digit_count": sum(c.isdigit() for c in domain),
+        "domain_age_days": age_info["age_days"] if age_known else _UNKNOWN_AGE_SENTINEL,
+        "domain_age_unknown": int(not age_known),
+        "domain_is_platform_hosted": int(age_info["is_platform_hosted"]),
     }
 
 

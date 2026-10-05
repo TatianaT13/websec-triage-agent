@@ -13,7 +13,8 @@ from . import web_analysis as wa
     "Fetch a URL and run a full defensive-security triage: page structure, "
     "extracted IOCs (domains, emails, punycode/IP links), the heuristic "
     "phishing score with reasons, the trained ML classifier's probability "
-    "(when available), and one combined verdict reconciling the two.",
+    "(when available), the domain's registration age via RDAP, and one "
+    "combined verdict reconciling all of it.",
     {"url": str},
 )
 async def analyze_webpage(args):

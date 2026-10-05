@@ -58,3 +58,31 @@ def test_disagreeing_signals_are_uncertain():
 def test_medium_heuristic_with_weak_ml_is_uncertain():
     result = combine_verdicts(MEDIUM, _ml(0.5))
     assert result["label"] == "uncertain"
+
+
+def test_young_domain_breaks_an_uncertain_tie_toward_phishing():
+    result = combine_verdicts(LOW, _ml(0.5), domain_age={"age_days": 5, "is_platform_hosted": False})
+    assert result["label"] == "phishing"
+    assert "5 days old" in result["confidence"]
+
+
+def test_established_domain_breaks_an_uncertain_tie_toward_benign():
+    result = combine_verdicts(LOW, _ml(0.5), domain_age={"age_days": 3000, "is_platform_hosted": False})
+    assert result["label"] == "benign"
+
+
+def test_mid_age_domain_does_not_break_the_tie():
+    result = combine_verdicts(LOW, _ml(0.5), domain_age={"age_days": 180, "is_platform_hosted": False})
+    assert result["label"] == "uncertain"
+
+
+def test_unknown_domain_age_does_not_break_the_tie():
+    result = combine_verdicts(LOW, _ml(0.5), domain_age={"age_days": None, "is_platform_hosted": True})
+    assert result["label"] == "uncertain"
+
+
+def test_domain_age_does_not_override_a_clear_signal():
+    # a decisive heuristic/ML signal shouldn't be second-guessed just
+    # because the domain happens to be old or young.
+    result = combine_verdicts(HIGH, _ml(0.9), domain_age={"age_days": 3000, "is_platform_hosted": False})
+    assert result["label"] == "phishing"

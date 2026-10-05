@@ -19,6 +19,7 @@ flowchart LR
     T1 --> H[Heuristiques\nstructure + IOC + score]
     T2 -->|Playwright| H
     H --> ML[Classifieur entraîné\nrandom forest / logistic regression]
+    RDAP[Âge du domaine\nvia RDAP] --> V
     ML --> V["Verdict combiné\nphishing / benign / uncertain"]
     V --> A
 
@@ -120,10 +121,11 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 **Réentraînement automatique** (`.github/workflows/retrain.yml`) : un job planifié (tous les lundis, ou déclenchable manuellement depuis l'onglet Actions) fait tourner `build_dataset.py` puis `train.py`, vérifie que le F1 du nouveau modèle reste raisonnable, lance les tests, et commit `data/dataset.csv` + `models/` si tout passe. Le secret `KAGGLE_API_TOKEN` est configuré côté repo (GitHub Actions secrets) pour que la source PhiUSIIL fonctionne aussi en CI.
 
-- **Features** (`websec_agent/features.py`) : dérivées de la même analyse de structure/IOC que le score heuristique (formulaires, favicon externe, ratio de scripts/liens externes, marque en titre non alignée avec le domaine, longueur/tirets/chiffres du domaine, etc.) — pas de texte brut, un vecteur numérique fixe.
+- **Features** (`websec_agent/features.py`) : dérivées de la même analyse de structure/IOC que le score heuristique (formulaires, favicon externe, ratio de scripts/liens externes, marque en titre non alignée avec le domaine, longueur/tirets/chiffres du domaine, etc.) + **âge du domaine via RDAP** (`websec_agent/domain_age.py`) — pas de texte brut, un vecteur numérique fixe.
+- **Âge du domaine (RDAP)** : un domaine enregistré il y a quelques jours est un signal classique de phishing, indépendant de la structure/marque. Via l'enregistrement IANA (bootstrap RDAP par TLD), pas l'ancien protocole WHOIS texte. **Non significatif pour les sous-domaines d'hébergeurs PaaS** (`vercel.app`, `pages.dev`, `netlify.app`...) : RDAP ne renvoie que la date d'enregistrement de la plateforme, pas celle du sous-domaine du site observé — détecté et signalé comme tel plutôt que de renvoyer un âge trompeur. Utilisé comme départage uniquement sur les verdicts "incertain" (`websec_agent/verdict.py`), jamais pour écraser un signal déjà net. *Trouvaille concrète pendant les tests : `roblox.com.mu` (le cas "bonne marque, mauvaise extension" documenté comme non détecté) s'est révélé enregistré il y a seulement 121 jours — exactement le genre de cas que ce signal permet de rattraper.*
 - **Tracking** : chaque run (modèle, hyperparamètres, métriques, cross-validation 5-fold) est loggé dans MLflow (`mlflow.db`, backend SQLite local, pas de serveur requis).
 - **Modèle versionné** : le meilleur modèle (par F1 sur le jeu de test) est copié vers `models/phishing_classifier.joblib` + une fiche modèle `models/phishing_classifier.meta.json` (date d'entraînement, taille du dataset, métriques) — c'est ce que charge l'outil `ml_classify_webpage`.
-- **Résultats** : le dataset et le modèle grandissent chaque semaine via le réentraînement automatique (voir ci-dessous) — `models/phishing_classifier.meta.json` contient toujours les chiffres du dernier run (taille du dataset, modèle retenu, métriques). Progression observée : 88 échantillons / F1 ≈ 0,92 → 366 échantillons / F1 ≈ 0,96 → 446 échantillons / F1 ≈ 0,93 (la variation d'un run à l'autre est normale à cette échelle). **Échelle recherche/démo, pas production** — à réentraîner avec beaucoup plus d'échantillons avant de s'y fier.
+- **Résultats** : le dataset et le modèle grandissent chaque semaine via le réentraînement automatique (voir ci-dessous) — `models/phishing_classifier.meta.json` contient toujours les chiffres du dernier run (taille du dataset, modèle retenu, métriques). Progression observée : 88 échantillons / F1 ≈ 0,92 → 366 / F1 ≈ 0,96 → 446 / F1 ≈ 0,93, puis **dataset reconstruit à neuf** (160 échantillons / F1 ≈ 0,95) lors de l'ajout de la feature d'âge du domaine — changer le schéma de features invalide les anciennes lignes (elles ne l'avaient pas), donc on régénère plutôt que de bricoler un remplissage factice. **Échelle recherche/démo, pas production** — à réentraîner avec beaucoup plus d'échantillons avant de s'y fier.
 
 ## Structure du projet
 
@@ -136,6 +138,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── classifier.py           # inférence du modèle entraîné (chargement lazy)
 │   ├── verdict.py               # combine score heuristique + ML en un verdict unique
 │   ├── render.py                # fetch via navigateur headless (Playwright), optionnel
+│   ├── domain_age.py            # âge du domaine via RDAP
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
 ├── training/
@@ -155,6 +158,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_verdict.py         # tests de la logique de combinaison heuristique + ML
 │   ├── test_render.py          # tests du fetch via navigateur headless
 │   ├── test_fetch_safety.py    # tests du garde-fou SSRF (incl. redirections)
+│   ├── test_domain_age.py      # tests du lookup RDAP
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -171,7 +175,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 - Le score de phishing est **heuristique** (règles), calibré sur un petit échantillon réel du flux OpenPhish — pas un modèle entraîné, à continuer d'affiner.
 - **Comparaison de domaine correcte** (via `tldextract`, suffixes publics `.co.uk`/`.com.mu`/etc. et hébergeurs PaaS comme `vercel.app`/`pages.dev` où chaque sous-domaine est un site distinct) et **détection des domaines-sosies contenant le nom de la marque** (ex. `wetransfer-smoky.vercel.app`) — corrigés après calibration sur de vrais échantillons.
-- **Lacune connue non corrigée** : même nom de marque mais mauvaise extension (ex. `roblox.com.mu` au lieu de `roblox.com`) n'est pas détecté — nécessiterait une liste de domaines légitimes par marque, risquée à maintenir sans faux positifs (beaucoup de marques ont de vraies variantes régionales légitimes, ex. `amazon.fr`).
+- **Lacune comblée en pratique, pas par design** : même nom de marque mais mauvaise extension (ex. `roblox.com.mu` au lieu de `roblox.com`) n'est toujours pas détecté par le score heuristique seul (reste "low"). Mais le classifieur ML a appris de lui-même, via la feature d'âge du domaine, à flagger ce cas précis : `roblox.com.mu` (enregistré il y a 121 jours) → verdict final **phishing**, probabilité ML 0,99. Une vraie liste de domaines légitimes par marque reste la solution robuste pour ce pattern en général, mais risquée à maintenir sans faux positifs (variantes régionales légitimes, ex. `amazon.fr`) — ce qu'on a est une corrélation apprise sur un petit dataset, pas une règle garantie.
 - MarkupLM est un backbone de compréhension de document HTML (QA, extraction d'info) — il n'est pas pré-entraîné pour classifier du phishing ; `ask_webpage` sert à interroger le contenu, pas à obtenir un verdict de sécurité direct.
 - `analyze_webpage` n'exécute pas le JS par défaut (rapide, mais aveugle à un contenu injecté côté client) ; `analyze_webpage_rendered` couvre ce cas via Playwright, mais c'est à l'agent de détecter qu'une page a besoin du rendu (heuristique simple : page qui semble vide) — pas automatique ni garanti.
 - ~~Le garde-fou anti-SSRF ne revérifiait pas après une redirection HTTP~~ — **corrigé** : chaque redirection (et, côté navigateur headless, chaque sous-requête de la page) revalide désormais le nom d'hôte ; testé avec un vrai redirecteur HTTP vers l'IP de métadonnées cloud (`169.254.169.254`), bloqué comme attendu. Résidu non traité : pas de protection contre le DNS rebinding (le hostname est validé avant la connexion, mais la résolution pourrait changer entre les deux).

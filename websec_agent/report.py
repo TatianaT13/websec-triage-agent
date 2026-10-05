@@ -38,6 +38,12 @@ def build_result(url: str, render: bool = False) -> dict:
     except RuntimeError:
         pass  # MLOps extras not installed, or no trained model yet - degrade gracefully
 
+    from urllib.parse import urlsplit
+
+    from . import domain_age as da
+
+    domain_age_info = da.lookup_domain_age(urlsplit(fetched["final_url"]).hostname or "")
+
     return {
         "requested_url": url,
         "final_url": fetched["final_url"],
@@ -47,7 +53,8 @@ def build_result(url: str, render: bool = False) -> dict:
         "iocs": iocs,
         "phishing_heuristic": heuristic,
         "ml_classifier": ml,
-        "verdict": vd.combine_verdicts(heuristic, ml),
+        "domain_age": domain_age_info,
+        "verdict": vd.combine_verdicts(heuristic, ml, domain_age_info),
     }
 
 
@@ -56,6 +63,7 @@ def build_markdown_report(result: dict) -> str:
     iocs = result["iocs"]
     heuristic = result["phishing_heuristic"]
     ml = result.get("ml_classifier")
+    domain_age = result.get("domain_age")
     combined = result.get("verdict")
 
     forms_lines = "\n".join(
@@ -76,6 +84,12 @@ def build_markdown_report(result: dict) -> str:
             if ml
             else "- **Classifieur ML** : indisponible (extras MLOps non installés ou pas de modèle entraîné)"
         )
+        if domain_age and domain_age.get("age_days") is not None:
+            age_line = f"- **Âge du domaine** : {domain_age['age_days']} jours (enregistré le {domain_age['registered_at']})"
+        elif domain_age and domain_age.get("is_platform_hosted"):
+            age_line = "- **Âge du domaine** : non significatif (sous-domaine d'un hébergeur PaaS)"
+        else:
+            age_line = "- **Âge du domaine** : indisponible"
         verdict_section = f"""
 ## Verdict combiné
 
@@ -83,6 +97,7 @@ def build_markdown_report(result: dict) -> str:
 
 - **Score heuristique** : niveau {heuristic['level']} (score {heuristic['score']})
 {ml_line}
+{age_line}
 """
 
     return f"""# Rapport de triage web — {result['requested_url']}
@@ -139,6 +154,7 @@ def build_ioc_bundle(result: dict) -> dict:
 
     combined = result.get("verdict")
     ml = result.get("ml_classifier")
+    domain_age = result.get("domain_age")
     return {
         "source_url": result["requested_url"],
         "fetched_at": result["fetched_at"],
@@ -146,6 +162,7 @@ def build_ioc_bundle(result: dict) -> dict:
         "verdict_level": result["phishing_heuristic"]["level"],
         "verdict_score": result["phishing_heuristic"]["score"],
         "ml_phishing_probability": ml["phishing_probability"] if ml else None,
+        "domain_age_days": domain_age["age_days"] if domain_age else None,
         "indicators": indicators,
     }
 
