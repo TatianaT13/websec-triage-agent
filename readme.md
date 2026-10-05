@@ -13,7 +13,11 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 
 ## Installation
 
+Le SDK pilote le CLI Claude Code en arrière-plan (nécessite Node.js) :
+
 ```bash
+npm install @anthropic-ai/claude-code
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -21,7 +25,7 @@ pip install -r requirements.txt
 pip install -r requirements-ml.txt
 ```
 
-Authentification Claude : `ant auth login`, ou variable d'environnement `ANTHROPIC_API_KEY` (voir `.env.example`).
+Authentification : connecte-toi avec `node_modules/.bin/claude` (login intégré), ou définis la variable d'environnement `ANTHROPIC_API_KEY` (voir `.env.example`).
 
 ## Utilisation
 
