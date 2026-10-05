@@ -336,8 +336,13 @@ def ask_webpage_question(html: str, url: str, question: str) -> dict:
             raise RuntimeError(
                 "MarkupLM QA requires the ML extras: pip install -r requirements-ml.txt"
             ) from exc
-        processor = MarkupLMProcessor.from_pretrained("microsoft/markuplm-base-finetuned-websrc")
-        model = MarkupLMForQuestionAnswering.from_pretrained("microsoft/markuplm-base-finetuned-websrc")
+
+        from . import model_security as ms
+
+        repo_id = "microsoft/markuplm-base-finetuned-websrc"
+        ms.verify_pickle_safe(repo_id, ["pytorch_model.bin"])
+        processor = MarkupLMProcessor.from_pretrained(repo_id)
+        model = MarkupLMForQuestionAnswering.from_pretrained(repo_id)
         _markuplm_pipeline = (processor, model)
 
     import torch
