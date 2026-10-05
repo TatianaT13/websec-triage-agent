@@ -30,3 +30,24 @@ def test_renders_a_real_page():
     result = rnd.fetch_rendered_html("https://example.com")
     assert result["status_code"] == 200
     assert "Example Domain" in result["html"]
+
+
+def test_host_resolver_pin_has_a_real_effect():
+    # Proves --host-resolver-rules isn't silently ignored: pinning a real
+    # hostname to a deliberately wrong (unreachable, RFC 5737 test-net) IP
+    # must make the navigation fail, not quietly resolve normally. This is
+    # the same mechanism fetch_rendered_html uses to close the DNS-rebinding
+    # gap (Chromium would otherwise re-resolve independently of Python's
+    # _guard_ssrf check, like requests did before web_analysis.py was
+    # patched to pin its own connections).
+    pytest.importorskip("playwright", reason="requires requirements-render.txt")
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--host-resolver-rules=MAP example.com 203.0.113.1"])
+        try:
+            page = browser.new_page()
+            with pytest.raises(Exception):
+                page.goto("https://example.com", timeout=5000)
+        finally:
+            browser.close()

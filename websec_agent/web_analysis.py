@@ -7,6 +7,7 @@ blocks private/loopback/link-local targets.
 """
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import re
 import socket
@@ -45,28 +46,79 @@ class FetchError(Exception):
     pass
 
 
-def _guard_ssrf(hostname: str) -> None:
+def _guard_ssrf(hostname: str) -> list[str]:
+    """Resolve + validate, returning the validated IPs so the caller can
+    pin the connection to them (see _pin_dns) - a hostname string alone
+    isn't enough to prevent a second, independent resolution later."""
     try:
         infos = socket.getaddrinfo(hostname, None)
     except socket.gaierror as exc:
         raise FetchError(f"cannot resolve host: {hostname}") from exc
+    validated_ips = []
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
             raise FetchError(f"refusing to fetch internal/private address: {ip}")
+        validated_ips.append(str(ip))
+    if not validated_ips:
+        raise FetchError(f"no addresses resolved for host: {hostname}")
+    return validated_ips
+
+
+def _sockaddr_info(ip: str, port: int) -> tuple:
+    addr = ipaddress.ip_address(ip)
+    if addr.version == 6:
+        return (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, port, 0, 0))
+    return (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, port))
+
+
+@contextlib.contextmanager
+def _pin_dns(hostname: str, validated_ips: list[str]):
+    """Force every socket.getaddrinfo() call for this exact hostname, for
+    the duration of the single request that follows, to return only the
+    IPs _guard_ssrf already validated - instead of letting requests/urllib3
+    resolve it again independently at connect time.
+
+    Without this, the guard only proves the hostname was safe a few
+    milliseconds ago: an attacker running authoritative DNS for their own
+    domain (the normal case here - the thing being fetched is often a live
+    phishing sample) can answer the guard's lookup with a public IP and the
+    real connection's lookup with an internal one (DNS rebinding),
+    bypassing the check entirely.
+
+    Process-global and not thread-safe - fine as long as fetch_html() is
+    only ever called synchronously from one thread at a time, which is the
+    case everywhere in this codebase today."""
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _pinned(host, port, family=0, type=0, proto=0, flags=0):
+        if host != hostname:
+            return real_getaddrinfo(host, port, family, type, proto, flags)
+        port_num = port if isinstance(port, int) else 0
+        return [_sockaddr_info(ip, port_num) for ip in validated_ips]
+
+    socket.getaddrinfo = _pinned
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = real_getaddrinfo
 
 
 MAX_REDIRECTS = 5
 
 
 def fetch_html(url: str) -> dict:
-    """Fetch a URL with an SSRF guard re-checked on every redirect hop.
+    """Fetch a URL with an SSRF guard re-checked (and DNS-pinned) on every
+    redirect hop.
 
     requests' own allow_redirects=True would follow a 30x Location header
     without re-validating it - a page (or an attacker controlling one hop
     of a redirect chain) could point at an internal/private address and
     bypass the guard entirely. We disable automatic redirects and walk the
-    chain ourselves, re-running the same hostname check at each step."""
+    chain ourselves, re-running the same hostname check at each step - and
+    pin each hop's connection to the IPs that check just validated (see
+    _pin_dns), so a second, independently-resolved DNS answer can't
+    substitute an internal address after the check passes."""
     current_url = url
     for _ in range(MAX_REDIRECTS + 1):
         parts = urlsplit(current_url)
@@ -74,15 +126,16 @@ def fetch_html(url: str) -> dict:
             raise FetchError("only http/https URLs are supported")
         if not parts.hostname:
             raise FetchError("URL has no hostname")
-        _guard_ssrf(parts.hostname)
+        validated_ips = _guard_ssrf(parts.hostname)
 
-        resp = requests.get(
-            current_url,
-            headers={"User-Agent": USER_AGENT},
-            timeout=TIMEOUT_S,
-            stream=True,
-            allow_redirects=False,
-        )
+        with _pin_dns(parts.hostname, validated_ips):
+            resp = requests.get(
+                current_url,
+                headers={"User-Agent": USER_AGENT},
+                timeout=TIMEOUT_S,
+                stream=True,
+                allow_redirects=False,
+            )
 
         if resp.is_redirect:
             location = resp.headers.get("Location")

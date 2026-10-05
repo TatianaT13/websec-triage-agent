@@ -9,6 +9,7 @@ shape and SSRF guard, so callers can treat both the same way.
 """
 from __future__ import annotations
 
+import ipaddress
 from urllib.parse import urlsplit
 
 from . import web_analysis as wa
@@ -22,7 +23,7 @@ def fetch_rendered_html(url: str, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> dict:
         raise wa.FetchError("only http/https URLs are supported")
     if not parts.hostname:
         raise wa.FetchError("URL has no hostname")
-    wa._guard_ssrf(parts.hostname)
+    validated_ips = wa._guard_ssrf(parts.hostname)
 
     try:
         from playwright.sync_api import sync_playwright
@@ -37,6 +38,14 @@ def fetch_rendered_html(url: str, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> dict:
         # navigation: redirects, and any fetch()/XHR/img/script the loaded
         # page issues, could all otherwise reach an internal address -
         # a vector that doesn't even exist for the non-JS fetch_html() path.
+        # Note: this check alone has the same DNS-rebinding gap fetch_html()
+        # had before being pinned (Chromium resolves independently after
+        # this Python-side check) - closed below for the main hostname via
+        # --host-resolver-rules, which persists for every connection to
+        # that exact hostname for the rest of this browser's lifetime, not
+        # just the first one. Other hostnames the page references (a
+        # redirect to a different domain, third-party subresources) are
+        # still only covered by this per-request check, unpinned.
         host = urlsplit(route.request.url).hostname
         if host:
             try:
@@ -46,8 +55,13 @@ def fetch_rendered_html(url: str, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> dict:
                 return
         route.continue_()
 
+    launch_args = []
+    pinned_ip = next((ip for ip in validated_ips if ipaddress.ip_address(ip).version == 4), None)
+    if pinned_ip:
+        launch_args.append(f"--host-resolver-rules=MAP {parts.hostname} {pinned_ip}")
+
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(args=launch_args)
         try:
             page = browser.new_page(user_agent=wa.USER_AGENT)
             page.route("**/*", _guard_route)
