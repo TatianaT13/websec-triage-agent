@@ -6,6 +6,46 @@
 
 Agent construit avec le [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk) pour l'analyse défensive de pages web : audit de structure HTML, extraction d'IOC, et score heuristique de phishing. Un outil optionnel basé sur [MarkupLM](https://huggingface.co/docs/transformers/model_doc/markuplm) permet de poser des questions sur le contenu d'une page (QA sur document HTML).
 
+## Architecture
+
+```mermaid
+flowchart LR
+    U["Utilisateur\n(langage naturel)"] --> A["Agent Claude\n(Claude Agent SDK)"]
+    A -->|choisit l'outil| T1[analyze_webpage]
+    A --> T2[analyze_webpage_rendered]
+    A --> T3[ask_webpage]
+    A --> T4[export_report]
+
+    T1 --> H[Heuristiques\nstructure + IOC + score]
+    T2 -->|Playwright| H
+    H --> ML[Classifieur entraîné\nrandom forest / logistic regression]
+    ML --> V["Verdict combiné\nphishing / benign / uncertain"]
+    V --> A
+
+    subgraph MLOPS["MLOps (cron hebdo)"]
+        DS[OpenPhish + Tranco + PhiUSIIL] --> TR[training/build_dataset.py] --> TM[training/train.py] --> MOD[(models/*.joblib)]
+    end
+    MOD -.modèle versionné.-> ML
+```
+
+Le classifieur n'est pas statique : un [workflow planifié](.github/workflows/retrain.yml) fait grandir le dataset et réentraîne chaque semaine, en ne committant que si le F1 du nouveau modèle reste sain.
+
+## Exemple réel
+
+Capture d'un run réel sur un échantillon du flux [OpenPhish](https://openphish.com/) (page usurpant WeTransfer, hébergée sur un sous-domaine Vercel) :
+
+```text
+$ python main.py "Analyse https://wetransfer-smoky.vercel.app/"
+
+Verdict combiné : PHISHING — les deux signaux sont d'accord
+  Heuristique : niveau medium (score 4)
+    - brand 'wetransfer' en titre mais le domaine du site est 'wetransfer-smoky.vercel.app'
+    - favicon servi depuis un domaine différent de la page
+  Classifieur ML : phishing (probabilité 0.86)
+```
+
+(voir [Limites connues](#limites-connues) pour ce que cet échantillon réel a permis de corriger pendant la calibration)
+
 ## ⚠️ Cadre d'usage
 
 Cet outil est destiné à un usage défensif et autorisé uniquement : tes propres sites, des échantillons de phishing déjà signalés, des labs/CTF. Il ne contourne aucune protection et ne doit pas être pointé vers des cibles sans autorisation.
