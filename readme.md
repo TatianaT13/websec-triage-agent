@@ -1,5 +1,9 @@
 # agentaai — agent de triage web-sécu (Claude Agent SDK)
 
+[![tests](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/tests.yml)
+[![retrain](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/retrain.yml/badge.svg)](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/retrain.yml)
+[![license](https://img.shields.io/github/license/TatianaT13/websec-triage-agent)](LICENSE)
+
 Agent construit avec le [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk) pour l'analyse défensive de pages web : audit de structure HTML, extraction d'IOC, et score heuristique de phishing. Un outil optionnel basé sur [MarkupLM](https://huggingface.co/docs/transformers/model_doc/markuplm) permet de poser des questions sur le contenu d'une page (QA sur document HTML).
 
 ## ⚠️ Cadre d'usage
