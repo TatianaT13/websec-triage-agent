@@ -1,0 +1,2 @@
+-r requirements.txt
+vt-py>=0.18

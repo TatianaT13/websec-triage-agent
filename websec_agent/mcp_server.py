@@ -14,12 +14,17 @@ from . import web_analysis as wa
     "extracted IOCs (domains, emails, punycode/IP links), the heuristic "
     "phishing score with reasons, the trained ML classifier's probability "
     "(when available), the domain's registration age via RDAP, and one "
-    "combined verdict reconciling all of it.",
-    {"url": str},
+    "combined verdict reconciling all of it. Set check_virustotal=true to "
+    "also query VirusTotal (70+ security vendors) - slower (up to ~30s for "
+    "a URL VT hasn't seen before) and costs quota (requires VT_API_KEY and "
+    "requirements-threatintel.txt), so it's off by default.",
+    {"url": str, "check_virustotal": bool},
 )
 async def analyze_webpage(args):
     try:
-        result = rpt.build_result(args["url"])
+        result = await asyncio.to_thread(
+            rpt.build_result, args["url"], False, args.get("check_virustotal", False)
+        )
     except wa.FetchError as exc:
         return {"content": [{"type": "text", "text": f"Fetch blocked or failed: {exc}"}], "is_error": True}
     return {"content": [{"type": "text", "text": str(result)}]}
@@ -63,12 +68,16 @@ async def ask_webpage(args):
     "export_report",
     "Fetch a URL, run the triage pipeline, and write a Markdown report plus "
     "a JSON IOC bundle to disk (e.g. for a SOC ticket). Deterministic, no "
-    "extra LLM call - the report is generated straight from the heuristics.",
-    {"url": str, "out_dir": str},
+    "extra LLM call - the report is generated straight from the heuristics. "
+    "Set check_virustotal=true to also include a VirusTotal verdict (see "
+    "analyze_webpage's description for the cost/latency tradeoff).",
+    {"url": str, "out_dir": str, "check_virustotal": bool},
 )
 async def export_report(args):
     try:
-        outcome = rpt.export(args["url"], args["out_dir"])
+        outcome = await asyncio.to_thread(
+            rpt.export, args["url"], args["out_dir"], False, args.get("check_virustotal", False)
+        )
     except wa.FetchError as exc:
         return {"content": [{"type": "text", "text": f"Fetch blocked or failed: {exc}"}], "is_error": True}
     text = (
@@ -96,8 +105,34 @@ async def ml_classify_webpage(args):
     return {"content": [{"type": "text", "text": str(result)}]}
 
 
+@tool(
+    "check_virustotal",
+    "Check a URL against VirusTotal (70+ security vendors) on its own, "
+    "without the rest of the triage pipeline. Up to ~30s for a URL VT "
+    "hasn't seen before (it submits and waits for a verdict); instant if "
+    "VT already has a report. Requires requirements-threatintel.txt and a "
+    "free VT_API_KEY (quota: 4 requests/minute, 500/day).",
+    {"url": str},
+)
+async def check_virustotal(args):
+    try:
+        from . import virustotal as vt
+
+        result = await asyncio.to_thread(vt.check_url, args["url"])
+    except RuntimeError as exc:
+        return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+
 websec_server = create_sdk_mcp_server(
     name="websec",
     version="0.1.0",
-    tools=[analyze_webpage, analyze_webpage_rendered, ask_webpage, export_report, ml_classify_webpage],
+    tools=[
+        analyze_webpage,
+        analyze_webpage_rendered,
+        ask_webpage,
+        export_report,
+        ml_classify_webpage,
+        check_virustotal,
+    ],
 )

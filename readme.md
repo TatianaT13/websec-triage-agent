@@ -20,6 +20,7 @@ flowchart LR
     T2 -->|Playwright| H
     H --> ML[Classifieur entraîné\nrandom forest / logistic regression]
     RDAP[Âge du domaine\nvia RDAP] --> V
+    VT["VirusTotal\n(70+ moteurs, optionnel)"] --> V
     ML --> V["Verdict combiné\nphishing / benign / uncertain"]
     V --> A
 
@@ -36,13 +37,14 @@ Le classifieur n'est pas statique : un [workflow planifié](.github/workflows/re
 Capture d'un run réel sur un échantillon du flux [OpenPhish](https://openphish.com/) (page usurpant WeTransfer, hébergée sur un sous-domaine Vercel) :
 
 ```text
-$ python main.py "Analyse https://wetransfer-smoky.vercel.app/"
+$ python main.py "Analyse https://wetransfer-smoky.vercel.app/ en vérifiant aussi VirusTotal"
 
-Verdict combiné : PHISHING — les deux signaux sont d'accord
+Verdict combiné : PHISHING — both signals agree; VirusTotal: 13 security vendor(s) flag this URL as malicious
   Heuristique : niveau medium (score 4)
     - brand 'wetransfer' en titre mais le domaine du site est 'wetransfer-smoky.vercel.app'
     - favicon servi depuis un domaine différent de la page
-  Classifieur ML : phishing (probabilité 0.86)
+  Classifieur ML : phishing (probabilité 0.9985)
+  VirusTotal (déjà en cache) : 13 malveillants, 1 suspect, 47 inoffensifs, 31 sans détection
 ```
 
 (voir [Limites connues](#limites-connues) pour ce que cet échantillon réel a permis de corriger pendant la calibration)
@@ -57,6 +59,7 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 - **`analyze_webpage_rendered`** (optionnel, nécessite les dépendances render) : même pipeline, mais la page est d'abord rendue dans un navigateur headless (Playwright) — utile quand `analyze_webpage` revient suspicieusement vide parce que le contenu (ex. un formulaire de login) est injecté par du JS côté client.
 - **`export_report`** : génère un rapport Markdown + un bundle IOC JSON sur disque, directement depuis les heuristiques (pas d'appel LLM supplémentaire, déterministe) — utilisable aussi en CLI pure via `python scripts/export_report.py <url> [out_dir] [--render]`.
 - **`ml_classify_webpage`** (optionnel, nécessite les dépendances MLOps) : appel autonome au classifieur entraîné seul, sans le reste du pipeline — utile pour un score ML rapide. `analyze_webpage` l'inclut déjà dans son verdict combiné.
+- **`check_virustotal`** / `analyze_webpage(check_virustotal=true)` (optionnel, nécessite `requirements-threatintel.txt` + une clé `VT_API_KEY` gratuite) : interroge 70+ moteurs de sécurité réels. Un verdict malveillant **l'emporte** sur nos propres signaux (vraie donnée vendeur, pas juste notre petit modèle) ; un rapport propre ne fait que départager un cas "incertain". Coûte du quota (4 requêtes/min, 500/jour en gratuit) et peut prendre jusqu'à ~30s pour une URL inconnue de VT — désactivé par défaut.
 - **`ask_webpage`** (optionnel, nécessite les dépendances ML) : QA en langage naturel sur le contenu d'une page via MarkupLM.
 
 ## Installation
@@ -74,6 +77,9 @@ pip install -r requirements-ml.txt
 # optionnel, pour analyze_webpage_rendered :
 pip install -r requirements-render.txt
 playwright install chromium
+# optionnel, pour check_virustotal :
+pip install -r requirements-threatintel.txt
+export VT_API_KEY="..."  # clé gratuite sur virustotal.com -> icône profil -> API Key
 ```
 
 Authentification : connecte-toi avec `node_modules/.bin/claude` (login intégré), ou définis la variable d'environnement `ANTHROPIC_API_KEY` (voir `.env.example`).
@@ -140,6 +146,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── verdict.py               # combine score heuristique + ML en un verdict unique
 │   ├── render.py                # fetch via navigateur headless (Playwright), optionnel
 │   ├── domain_age.py            # âge du domaine via RDAP
+│   ├── virustotal.py            # vérification VirusTotal (70+ moteurs), optionnel
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
 ├── training/
@@ -161,6 +168,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_fetch_safety.py    # tests du garde-fou SSRF (incl. redirections)
 │   ├── test_domain_age.py      # tests du lookup RDAP
 │   ├── test_model_security.py  # tests du scan picklescan (incl. pickle malveillant réel)
+│   ├── test_virustotal.py      # tests du client VirusTotal (mocké, + vérifié en live)
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -170,6 +178,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ├── requirements-ml.txt
 ├── requirements-render.txt
 ├── requirements-mlops.txt
+├── requirements-threatintel.txt
 └── .env.example
 ```
 
@@ -183,6 +192,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - `analyze_webpage` n'exécute pas le JS par défaut (rapide, mais aveugle à un contenu injecté côté client) ; `analyze_webpage_rendered` couvre ce cas via Playwright, mais c'est à l'agent de détecter qu'une page a besoin du rendu (heuristique simple : page qui semble vide) — pas automatique ni garanti.
 - ~~Le garde-fou anti-SSRF ne revérifiait pas après une redirection HTTP~~ — **corrigé** : chaque redirection (et, côté navigateur headless, chaque sous-requête de la page) revalide désormais le nom d'hôte ; testé avec un vrai redirecteur HTTP vers l'IP de métadonnées cloud (`169.254.169.254`), bloqué comme attendu.
 - ~~Pas de protection contre le DNS rebinding~~ — **corrigé après revue de sécurité** (`/security-review`) : le hostname n'était validé qu'une fois, puis `requests`/Chromium refaisaient leur propre résolution DNS indépendante à la connexion — un attaquant contrôlant le DNS de son propre domaine (exactement le cas ici, puisqu'on analyse des URLs de phishing) pouvait répondre différemment aux deux résolutions pour contourner le garde-fou. Corrigé en épinglant la connexion aux IP déjà validées : monkeypatch scopé de `socket.getaddrinfo` côté `fetch_html`, flag `--host-resolver-rules` de Chromium côté rendu navigateur. Les deux vérifiés avec une simulation réelle de rebinding (voir `tests/test_fetch_safety.py` et `tests/test_render.py`). **Résidu restant, honnêtement limité** : côté navigateur headless, seul le nom d'hôte de la page demandée est épinglé — une redirection ou une sous-ressource vers un *second* domaine contrôlé par l'attaquant reste protégée par la revalidation par requête (`_guard_route`), mais pas épinglée.
+- **VirusTotal n'est pas gratuit à volonté** : quota de 4 requêtes/min et 500/jour sur le tier gratuit, et volontairement non branché dans `training/build_dataset.py`/le réentraînement automatique (trop lent — jusqu'à ~30s/URL pour une soumission fraîche — et ça viderait le quota en quelques minutes sur un run qui traite des dizaines d'URLs). C'est un signal pour l'analyse interactive, pas pour l'entraînement.
+- URL soumises à VirusTotal (cas d'une URL que VT ne connaît pas encore) sont ajoutées à leur dataset et deviennent visibles publiquement — normal et voulu pour du phishing qu'on analyse, mais à garder en tête si tu pointais l'outil vers autre chose.
 
 ## Prochaines étapes possibles
 

@@ -8,14 +8,19 @@ import json
 from datetime import datetime, timezone
 
 
-def build_result(url: str, render: bool = False) -> dict:
+def build_result(url: str, render: bool = False, check_virustotal: bool = False) -> dict:
     """Fetch + run the full pipeline (heuristic score, and the trained ML
     classifier when available), returning one result dict with a single
     combined verdict instead of two opinions the caller has to reconcile.
 
     render=True fetches through a headless browser (websec_agent.render)
     instead of a plain HTTP GET, so JS-injected content is visible - slower
-    and requires requirements-render.txt, so it's opt-in."""
+    and requires requirements-render.txt, so it's opt-in.
+
+    check_virustotal=True also queries VirusTotal (requirements-threatintel.txt
+    + a free VT_API_KEY) - opt-in because it costs real quota (4 req/min,
+    500/day on the free tier) and a fresh submission can take up to
+    max_wait_s to return a verdict, unlike every other signal here."""
     from . import verdict as vd
     from . import web_analysis as wa
 
@@ -44,6 +49,15 @@ def build_result(url: str, render: bool = False) -> dict:
 
     domain_age_info = da.lookup_domain_age(urlsplit(fetched["final_url"]).hostname or "")
 
+    vt_result = None
+    if check_virustotal:
+        try:
+            from . import virustotal as vt
+
+            vt_result = vt.check_url(fetched["final_url"])
+        except RuntimeError:
+            pass  # threat-intel extras not installed, or no VT_API_KEY - degrade gracefully
+
     return {
         "requested_url": url,
         "final_url": fetched["final_url"],
@@ -54,7 +68,8 @@ def build_result(url: str, render: bool = False) -> dict:
         "phishing_heuristic": heuristic,
         "ml_classifier": ml,
         "domain_age": domain_age_info,
-        "verdict": vd.combine_verdicts(heuristic, ml, domain_age_info),
+        "virustotal": vt_result,
+        "verdict": vd.combine_verdicts(heuristic, ml, domain_age_info, vt_result),
     }
 
 
@@ -64,6 +79,7 @@ def build_markdown_report(result: dict) -> str:
     heuristic = result["phishing_heuristic"]
     ml = result.get("ml_classifier")
     domain_age = result.get("domain_age")
+    vt_result = result.get("virustotal")
     combined = result.get("verdict")
 
     forms_lines = "\n".join(
@@ -90,6 +106,16 @@ def build_markdown_report(result: dict) -> str:
             age_line = "- **Âge du domaine** : non significatif (sous-domaine d'un hébergeur PaaS)"
         else:
             age_line = "- **Âge du domaine** : indisponible"
+        if vt_result and vt_result.get("stats") is not None:
+            s = vt_result["stats"]
+            vt_line = (
+                f"- **VirusTotal** : {s.get('malicious', 0)} malveillant(s), "
+                f"{s.get('suspicious', 0)} suspect(s) sur {sum(s.values())} moteurs ({vt_result['source']})"
+            )
+        elif vt_result:
+            vt_line = f"- **VirusTotal** : pas de verdict ({vt_result['source']})"
+        else:
+            vt_line = "- **VirusTotal** : non consulté"
         verdict_section = f"""
 ## Verdict combiné
 
@@ -98,6 +124,7 @@ def build_markdown_report(result: dict) -> str:
 - **Score heuristique** : niveau {heuristic['level']} (score {heuristic['score']})
 {ml_line}
 {age_line}
+{vt_line}
 """
 
     return f"""# Rapport de triage web — {result['requested_url']}
@@ -155,6 +182,7 @@ def build_ioc_bundle(result: dict) -> dict:
     combined = result.get("verdict")
     ml = result.get("ml_classifier")
     domain_age = result.get("domain_age")
+    vt_result = result.get("virustotal")
     return {
         "source_url": result["requested_url"],
         "fetched_at": result["fetched_at"],
@@ -163,17 +191,18 @@ def build_ioc_bundle(result: dict) -> dict:
         "verdict_score": result["phishing_heuristic"]["score"],
         "ml_phishing_probability": ml["phishing_probability"] if ml else None,
         "domain_age_days": domain_age["age_days"] if domain_age else None,
+        "virustotal_stats": vt_result["stats"] if vt_result else None,
         "indicators": indicators,
     }
 
 
-def export(url: str, out_dir: str, render: bool = False) -> dict:
+def export(url: str, out_dir: str, render: bool = False, check_virustotal: bool = False) -> dict:
     """Run the pipeline and write report.md + iocs.json into out_dir.
     Returns {"result": ..., "report_path": ..., "ioc_path": ...}."""
     import os
 
     os.makedirs(out_dir, exist_ok=True)
-    result = build_result(url, render=render)
+    result = build_result(url, render=render, check_virustotal=check_virustotal)
 
     report_path = os.path.join(out_dir, "report.md")
     with open(report_path, "w", encoding="utf-8") as f:

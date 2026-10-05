@@ -28,21 +28,57 @@ def _domain_age_tiebreak(domain_age: dict | None) -> tuple[str, str] | None:
     return None
 
 
-def combine_verdicts(heuristic: dict, ml: dict | None, domain_age: dict | None = None) -> dict:
+def _apply_virustotal(label: str, confidence: str, vt_result: dict | None) -> tuple[str, str]:
+    """VirusTotal is real vendor ground truth, not our own model - a
+    malicious verdict from even one vendor is treated as an override, not
+    just a tiebreak, and can upgrade any label to "phishing" (but never
+    downgrades an existing "phishing" - our own concrete findings, like a
+    password field posting externally, don't stop mattering just because
+    VirusTotal hasn't caught up yet). A clean VirusTotal report is weaker
+    evidence (many fresh phishing pages aren't indexed yet either), so it
+    only breaks an "uncertain" tie, the same role domain age plays."""
+    if not vt_result or vt_result.get("stats") is None:
+        return label, confidence
+    stats = vt_result["stats"]
+    malicious = stats.get("malicious", 0)
+    suspicious = stats.get("suspicious", 0)
+
+    if malicious >= 1:
+        vt_note = f"VirusTotal: {malicious} security vendor(s) flag this URL as malicious"
+        if label == "phishing":
+            return label, f"{confidence}; {vt_note}"
+        return "phishing", vt_note
+    if label == "uncertain" and malicious == 0 and suspicious == 0:
+        return "benign", "signals disagree, but VirusTotal shows no detections across security vendors"
+    return label, confidence
+
+
+def combine_verdicts(
+    heuristic: dict,
+    ml: dict | None,
+    domain_age: dict | None = None,
+    vt_result: dict | None = None,
+) -> dict:
     """heuristic: web_analysis.score_phishing()'s return value.
     ml: classifier.classify_webpage()'s return value, or None if the MLOps
     extras/trained model aren't available - degrades to heuristic-only.
     domain_age: domain_age.lookup_domain_age()'s return value, used only to
-    break an "uncertain" tie (see _domain_age_tiebreak)."""
+    break an "uncertain" tie (see _domain_age_tiebreak).
+    vt_result: virustotal.check_url()'s return value, used as an override
+    toward "phishing" and otherwise as a tiebreak (see _apply_virustotal)."""
     if ml is None:
         label = "phishing" if heuristic["level"] in ("medium", "high") else "benign"
+        label, confidence = _apply_virustotal(
+            label, "heuristic-only (ML classifier unavailable)", vt_result
+        )
         return {
             "label": label,
-            "confidence": "heuristic-only (ML classifier unavailable)",
+            "confidence": confidence,
             "agreement": None,
             "heuristic": heuristic,
             "ml": None,
             "domain_age": domain_age,
+            "virustotal": vt_result,
         }
 
     ml_prob = ml["phishing_probability"]
@@ -63,6 +99,8 @@ def combine_verdicts(heuristic: dict, ml: dict | None, domain_age: dict | None =
         if tiebreak:
             label, confidence = tiebreak
 
+    label, confidence = _apply_virustotal(label, confidence, vt_result)
+
     return {
         "label": label,
         "confidence": confidence,
@@ -70,4 +108,5 @@ def combine_verdicts(heuristic: dict, ml: dict | None, domain_age: dict | None =
         "heuristic": heuristic,
         "ml": ml,
         "domain_age": domain_age,
+        "virustotal": vt_result,
     }

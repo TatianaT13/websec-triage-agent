@@ -11,3 +11,4 @@ mlflow.db
 mlruns/
 mlartifacts/
 data/.cache/
+.claude/
