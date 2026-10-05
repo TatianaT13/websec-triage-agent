@@ -55,6 +55,10 @@ def _install_fake_vt(monkeypatch, *, get_object_fn=None, scan_url_result=None):
 
 
 def test_requires_api_key(monkeypatch):
+    # Must fail on the missing key specifically, regardless of whether
+    # vt-py happens to be installed in this environment - inject a fake
+    # importable `vt` so the import itself can't be what raises here.
+    _install_fake_vt(monkeypatch)
     monkeypatch.delenv("VT_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="VT_API_KEY"):
         vtmod.check_url("https://example.com")
