@@ -1,5 +1,9 @@
 -r requirements.txt
-scikit-learn>=1.5
+# scikit-learn pinned exactly: joblib pickles the fitted estimator's class,
+# and an unpickling version mismatch (e.g. a newer sklearn than training
+# time) warns now and may hard-break later. Bump this pin whenever
+# training/train.py is re-run with a different scikit-learn version.
+scikit-learn==1.7.2
 pandas>=2.2
 joblib>=1.4
 mlflow>=2.14

