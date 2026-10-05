@@ -154,6 +154,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_classifier.py      # tests de forme/plage sur l'inférence (pas de label figé)
 │   ├── test_verdict.py         # tests de la logique de combinaison heuristique + ML
 │   ├── test_render.py          # tests du fetch via navigateur headless
+│   ├── test_fetch_safety.py    # tests du garde-fou SSRF (incl. redirections)
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -173,7 +174,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **Lacune connue non corrigée** : même nom de marque mais mauvaise extension (ex. `roblox.com.mu` au lieu de `roblox.com`) n'est pas détecté — nécessiterait une liste de domaines légitimes par marque, risquée à maintenir sans faux positifs (beaucoup de marques ont de vraies variantes régionales légitimes, ex. `amazon.fr`).
 - MarkupLM est un backbone de compréhension de document HTML (QA, extraction d'info) — il n'est pas pré-entraîné pour classifier du phishing ; `ask_webpage` sert à interroger le contenu, pas à obtenir un verdict de sécurité direct.
 - `analyze_webpage` n'exécute pas le JS par défaut (rapide, mais aveugle à un contenu injecté côté client) ; `analyze_webpage_rendered` couvre ce cas via Playwright, mais c'est à l'agent de détecter qu'une page a besoin du rendu (heuristique simple : page qui semble vide) — pas automatique ni garanti.
-- Le garde-fou anti-SSRF vérifie le nom d'hôte avant la requête initiale mais ne re-vérifie pas après une redirection HTTP — une redirection vers une adresse interne contournerait la protection (limite connue, pas corrigée).
+- ~~Le garde-fou anti-SSRF ne revérifiait pas après une redirection HTTP~~ — **corrigé** : chaque redirection (et, côté navigateur headless, chaque sous-requête de la page) revalide désormais le nom d'hôte ; testé avec un vrai redirecteur HTTP vers l'IP de métadonnées cloud (`169.254.169.254`), bloqué comme attendu. Résidu non traité : pas de protection contre le DNS rebinding (le hostname est validé avant la connexion, mais la résolution pourrait changer entre les deux).
 
 ## Prochaines étapes possibles
 
@@ -181,5 +182,5 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - Filtrage/vérification manuelle des candidats Tranco/PhiUSIIL avant de les labelliser "bénin" (risque de faux négatifs décrit ci-dessus).
 - Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
 - v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
-- Re-vérifier le garde-fou SSRF après chaque redirection, pas seulement sur l'URL initiale.
+- Protection contre le DNS rebinding (pinner l'IP résolue entre la vérification et la connexion).
 - Déclencher `analyze_webpage_rendered` automatiquement (plutôt que l'agent devine) quand `analyze_webpage` revient vide pour une page qui ne devrait pas l'être.

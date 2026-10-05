@@ -56,33 +56,55 @@ def _guard_ssrf(hostname: str) -> None:
             raise FetchError(f"refusing to fetch internal/private address: {ip}")
 
 
-def fetch_html(url: str) -> dict:
-    """Fetch a URL with an SSRF guard and a response-size cap."""
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        raise FetchError("only http/https URLs are supported")
-    if not parts.hostname:
-        raise FetchError("URL has no hostname")
-    _guard_ssrf(parts.hostname)
+MAX_REDIRECTS = 5
 
-    resp = requests.get(
-        url,
-        headers={"User-Agent": USER_AGENT},
-        timeout=TIMEOUT_S,
-        stream=True,
-        allow_redirects=True,
-    )
-    content = b""
-    for chunk in resp.iter_content(8192):
-        content += chunk
-        if len(content) > MAX_BYTES:
-            break
-    return {
-        "final_url": resp.url,
-        "status_code": resp.status_code,
-        "headers": dict(resp.headers),
-        "html": content.decode(resp.encoding or "utf-8", errors="replace"),
-    }
+
+def fetch_html(url: str) -> dict:
+    """Fetch a URL with an SSRF guard re-checked on every redirect hop.
+
+    requests' own allow_redirects=True would follow a 30x Location header
+    without re-validating it - a page (or an attacker controlling one hop
+    of a redirect chain) could point at an internal/private address and
+    bypass the guard entirely. We disable automatic redirects and walk the
+    chain ourselves, re-running the same hostname check at each step."""
+    current_url = url
+    for _ in range(MAX_REDIRECTS + 1):
+        parts = urlsplit(current_url)
+        if parts.scheme not in ("http", "https"):
+            raise FetchError("only http/https URLs are supported")
+        if not parts.hostname:
+            raise FetchError("URL has no hostname")
+        _guard_ssrf(parts.hostname)
+
+        resp = requests.get(
+            current_url,
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT_S,
+            stream=True,
+            allow_redirects=False,
+        )
+
+        if resp.is_redirect:
+            location = resp.headers.get("Location")
+            resp.close()
+            if not location:
+                raise FetchError("redirect response had no Location header")
+            current_url = urljoin(current_url, location)
+            continue
+
+        content = b""
+        for chunk in resp.iter_content(8192):
+            content += chunk
+            if len(content) > MAX_BYTES:
+                break
+        return {
+            "final_url": resp.url,
+            "status_code": resp.status_code,
+            "headers": dict(resp.headers),
+            "html": content.decode(resp.encoding or "utf-8", errors="replace"),
+        }
+
+    raise FetchError(f"too many redirects (>{MAX_REDIRECTS})")
 
 
 def _domain_of(url: str) -> str:
