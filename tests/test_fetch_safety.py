@@ -122,3 +122,18 @@ def test_fetch_html_resolves_through_the_pin_during_the_request():
             wa.fetch_html("https://example.com/")
 
     assert captured["resolved_ip"] == "93.184.216.34"
+
+
+def test_network_errors_become_fetch_errors_not_raw_exceptions():
+    # Found live: a redirect chain (tinyurl.com -> a duckdns.org domain)
+    # whose final hop actively reset the connection. requests raised its
+    # own ConnectionError, which escaped fetch_html uncaught and crashed
+    # the caller instead of surfacing as our own FetchError like every
+    # other failure mode here.
+    import requests as requests_module
+
+    with patch.object(
+        wa.requests, "get", side_effect=requests_module.exceptions.ConnectionError("Connection reset by peer")
+    ):
+        with pytest.raises(wa.FetchError, match="network error"):
+            wa.fetch_html("https://example.com/")

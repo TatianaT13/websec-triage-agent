@@ -128,28 +128,37 @@ def fetch_html(url: str) -> dict:
             raise FetchError("URL has no hostname")
         validated_ips = _guard_ssrf(parts.hostname)
 
-        with _pin_dns(parts.hostname, validated_ips):
-            resp = requests.get(
-                current_url,
-                headers={"User-Agent": USER_AGENT},
-                timeout=TIMEOUT_S,
-                stream=True,
-                allow_redirects=False,
-            )
+        try:
+            with _pin_dns(parts.hostname, validated_ips):
+                resp = requests.get(
+                    current_url,
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=TIMEOUT_S,
+                    stream=True,
+                    allow_redirects=False,
+                )
 
-        if resp.is_redirect:
-            location = resp.headers.get("Location")
-            resp.close()
-            if not location:
-                raise FetchError("redirect response had no Location header")
-            current_url = urljoin(current_url, location)
-            continue
+            if resp.is_redirect:
+                location = resp.headers.get("Location")
+                resp.close()
+                if not location:
+                    raise FetchError("redirect response had no Location header")
+                current_url = urljoin(current_url, location)
+                continue
 
-        content = b""
-        for chunk in resp.iter_content(8192):
-            content += chunk
-            if len(content) > MAX_BYTES:
-                break
+            content = b""
+            for chunk in resp.iter_content(8192):
+                content += chunk
+                if len(content) > MAX_BYTES:
+                    break
+        except requests.exceptions.RequestException as exc:
+            # A reset/refused/timed-out connection, a bad TLS handshake,
+            # etc. - some sites (link shorteners, anti-bot protection)
+            # actively reject non-browser clients. Surface it as our own
+            # FetchError like every other failure mode here, instead of
+            # letting a raw requests exception escape to the caller.
+            raise FetchError(f"network error fetching {current_url}: {exc}") from exc
+
         return {
             "final_url": resp.url,
             "status_code": resp.status_code,
