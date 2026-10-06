@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if error %}
+  <div class="card"><strong>Erreur</strong> : {{ error }}</div>
+{% else %}
+  {% set verdict = result.verdict %}
+  <div class="card">
+    <span class="badge badge-{{ verdict.label }}">{{ verdict.label|upper }}</span>
+    <p>{{ verdict.confidence }}</p>
+    <table>
+      <tr><td>URL demandée</td><td><code>{{ result.requested_url }}</code></td></tr>
+      <tr><td>URL finale</td><td><code>{{ result.final_url }}</code></td></tr>
+      <tr><td>Code HTTP</td><td>{{ result.status_code }}</td></tr>
+      <tr><td>Titre de la page</td><td>{{ result.structure.title or "(aucun)" }}</td></tr>
+      <tr><td>Récupéré le</td><td class="muted">{{ result.fetched_at }}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Score heuristique</h2>
+    <p>Niveau <strong>{{ result.phishing_heuristic.level }}</strong> (score {{ result.phishing_heuristic.score }})</p>
+    {% if result.phishing_heuristic.reasons %}
+    <ul>{% for r in result.phishing_heuristic.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">Aucune raison déclenchée.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Classifieur ML</h2>
+    {% if result.ml_classifier %}
+    <p>{{ result.ml_classifier.label }} — probabilité phishing {{ "%.2f"|format(result.ml_classifier.phishing_probability) }}</p>
+    {% else %}<p class="muted">Indisponible (extras MLOps non installés ou pas de modèle entraîné).</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Âge du domaine (RDAP)</h2>
+    {% if result.domain_age and result.domain_age.age_days is not none %}
+    <p>{{ result.domain_age.age_days }} jours (enregistré le {{ result.domain_age.registered_at }})</p>
+    {% elif result.domain_age and result.domain_age.is_platform_hosted %}
+    <p class="muted">Non significatif (sous-domaine d'un hébergeur PaaS).</p>
+    {% else %}<p class="muted">Indisponible (certains registres ne publient pas la date).</p>{% endif %}
+  </div>
+
+  {% if result.virustotal %}
+  <div class="card">
+    <h2>VirusTotal</h2>
+    {% if result.virustotal.stats %}
+    <p>{{ result.virustotal.stats.malicious }} malveillant(s), {{ result.virustotal.stats.suspicious }} suspect(s)
+       sur {{ result.virustotal.stats.values()|sum }} moteurs ({{ result.virustotal.source }})</p>
+    {% else %}<p class="muted">Pas de verdict ({{ result.virustotal.source }}).</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Structure</h2>
+    <table>
+      <tr><td>Formulaires</td><td>{{ result.structure.forms|length }}{% if result.structure.forms|selectattr("has_password_field")|list %} — contient un champ mot de passe{% endif %}</td></tr>
+      <tr><td>Scripts externes</td><td>{{ result.structure.external_scripts|join(", ") or "(aucun)" }}</td></tr>
+      <tr><td>Iframes</td><td>{{ result.structure.iframes|join(", ") or "(aucune)" }}</td></tr>
+      <tr><td>Favicon externe</td><td>{{ result.structure.favicon_is_external }}</td></tr>
+      <tr><td>Meta-refresh</td><td>{{ result.structure.meta_refresh }}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Indicateurs de compromission</h2>
+    <table>
+      <tr><td>Domaines</td><td>{{ result.iocs.domains|join(", ") or "(aucun)" }}</td></tr>
+      <tr><td>Emails</td><td>{{ result.iocs.emails|join(", ") or "(aucun)" }}</td></tr>
+      <tr><td>Domaines punycode</td><td>{{ result.iocs.punycode_domains|join(", ") or "(aucun)" }}</td></tr>
+      <tr><td>Liens raccourcis</td><td>{{ result.iocs.shortener_links|join(", ") or "(aucun)" }}</td></tr>
+      <tr><td>URLs en IP brute</td><td>{{ result.iocs.ip_literal_urls|join(", ") or "(aucune)" }}</td></tr>
+      <tr><td>TLD suspects</td><td>{{ result.iocs.suspicious_tld_domains|join(", ") or "(aucun)" }}</td></tr>
+    </table>
+  </div>
+
+  <p class="muted">Score heuristique/ML, pas un verdict certain — à corroborer avec une source de threat intel avant action.</p>
+{% endif %}
+
+<p><a href="/">← Nouvelle analyse</a></p>
+{% endblock %}

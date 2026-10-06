@@ -90,6 +90,19 @@ Authentification : connecte-toi avec `node_modules/.bin/claude` (login intégré
 python main.py "Analyse https://example.com et dis-moi si ça ressemble à du phishing"
 ```
 
+Sortie lisible : seuls les outils utilisés et la réponse de l'agent s'affichent (pas le bruit interne du SDK).
+
+### Interface web (mode rapide, sans agent)
+
+Pour une analyse instantanée avec un badge coloré plutôt qu'une conversation — appelle directement le pipeline heuristique + ML + RDAP, sans passer par Claude (gratuit, pas d'explication en langage naturel) :
+
+```bash
+pip install -r requirements-web.txt
+uvicorn webapp:app --reload
+```
+
+Puis ouvre <http://127.0.0.1:8000>. Ne pas exposer ça sur un réseau sans ajouter une authentification — c'est un outil local, sans contrôle d'accès, qui va chercher n'importe quelle URL qu'on lui soumet.
+
 ## Tests
 
 ```bash
@@ -128,7 +141,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 **Réentraînement automatique** (`.github/workflows/retrain.yml`) : un job planifié (tous les lundis, ou déclenchable manuellement depuis l'onglet Actions) fait tourner `build_dataset.py` puis `train.py`, vérifie que le F1 du nouveau modèle reste raisonnable, lance les tests, et commit `data/dataset.csv` + `models/` si tout passe. Le secret `KAGGLE_API_TOKEN` est configuré côté repo (GitHub Actions secrets) pour que la source PhiUSIIL fonctionne aussi en CI.
 
 - **Features** (`websec_agent/features.py`) : dérivées de la même analyse de structure/IOC que le score heuristique (formulaires, favicon externe, ratio de scripts/liens externes, marque en titre non alignée avec le domaine, longueur/tirets/chiffres du domaine, etc.) + **âge du domaine via RDAP** (`websec_agent/domain_age.py`) — pas de texte brut, un vecteur numérique fixe.
-- **Âge du domaine (RDAP)** : un domaine enregistré il y a quelques jours est un signal classique de phishing, indépendant de la structure/marque. Via l'enregistrement IANA (bootstrap RDAP par TLD), pas l'ancien protocole WHOIS texte. **Non significatif pour les sous-domaines d'hébergeurs PaaS** (`vercel.app`, `pages.dev`, `netlify.app`...) : RDAP ne renvoie que la date d'enregistrement de la plateforme, pas celle du sous-domaine du site observé — détecté et signalé comme tel plutôt que de renvoyer un âge trompeur. Utilisé comme départage uniquement sur les verdicts "incertain" (`websec_agent/verdict.py`), jamais pour écraser un signal déjà net. *Trouvaille concrète pendant les tests : `roblox.com.mu` (le cas "bonne marque, mauvaise extension" documenté comme non détecté) s'est révélé enregistré il y a seulement 121 jours — exactement le genre de cas que ce signal permet de rattraper.*
+- **Âge du domaine (RDAP)** : un domaine enregistré il y a quelques jours est un signal classique de phishing, indépendant de la structure/marque. Via l'enregistrement IANA (bootstrap RDAP par TLD), pas l'ancien protocole WHOIS texte. **Non significatif pour les sous-domaines d'hébergeurs PaaS** (`vercel.app`, `pages.dev`, `netlify.app`...) : RDAP ne renvoie que la date d'enregistrement de la plateforme, pas celle du sous-domaine du site observé — détecté et signalé comme tel plutôt que de renvoyer un âge trompeur. Utilisé comme départage uniquement sur les verdicts "incertain" (`websec_agent/verdict.py`), jamais pour écraser un signal déjà net. *Trouvaille concrète pendant les tests : `roblox.com.mu` (le cas "bonne marque, mauvaise extension" documenté comme non détecté) s'est révélé enregistré il y a seulement 121 jours — exactement le genre de cas que ce signal permet de rattraper.* **Limite observée en usage réel** : la disponibilité RDAP varie selon le registre — `.fr` renvoie la date d'enregistrement, `.it` n'en a renvoyé aucune lors d'un test réel (certains registres ne la publient pas, souvent pour des raisons de vie privée). `age_days` reste `None` dans ce cas, sans fausse certitude.
 - **Tracking** : chaque run (modèle, hyperparamètres, métriques, cross-validation 5-fold) est loggé dans MLflow (`mlflow.db`, backend SQLite local, pas de serveur requis).
 - **Modèle versionné** : le meilleur modèle (par F1 sur le jeu de test) est copié vers `models/phishing_classifier.joblib` + une fiche modèle `models/phishing_classifier.meta.json` (date d'entraînement, taille du dataset, métriques) — c'est ce que charge l'outil `ml_classify_webpage`.
 - **Résultats** : le dataset et le modèle grandissent chaque semaine via le réentraînement automatique (voir ci-dessous) — `models/phishing_classifier.meta.json` contient toujours les chiffres du dernier run (taille du dataset, modèle retenu, métriques). Progression observée : 88 échantillons / F1 ≈ 0,92 → 366 / F1 ≈ 0,96 → 446 / F1 ≈ 0,93, puis **dataset reconstruit à neuf** (160 échantillons / F1 ≈ 0,95) lors de l'ajout de la feature d'âge du domaine — changer le schéma de features invalide les anciennes lignes (elles ne l'avaient pas), donc on régénère plutôt que de bricoler un remplissage factice. **Échelle recherche/démo, pas production** — à réentraîner avec beaucoup plus d'échantillons avant de s'y fier.
@@ -149,6 +162,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── virustotal.py            # vérification VirusTotal (70+ moteurs), optionnel
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
+├── webapp.py                    # interface web FastAPI (mode rapide, sans agent), optionnelle
+├── templates/                    # templates Jinja2 de l'interface web
 ├── training/
 │   ├── build_dataset.py        # construit data/dataset.csv (phishing réel + bénin)
 │   └── train.py                # entraîne, track avec MLflow, promeut le meilleur modèle
@@ -169,6 +184,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_domain_age.py      # tests du lookup RDAP
 │   ├── test_model_security.py  # tests du scan picklescan (incl. pickle malveillant réel)
 │   ├── test_virustotal.py      # tests du client VirusTotal (mocké, + vérifié en live)
+│   ├── test_webapp.py          # tests de l'interface web (incl. protection XSS)
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -179,6 +195,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ├── requirements-render.txt
 ├── requirements-mlops.txt
 ├── requirements-threatintel.txt
+├── requirements-web.txt
 └── .env.example
 ```
 

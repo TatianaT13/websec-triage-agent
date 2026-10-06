@@ -10,7 +10,14 @@ import asyncio
 import os
 import sys
 
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+    query,
+)
 
 from websec_agent.mcp_server import websec_server
 
@@ -32,6 +39,23 @@ SYSTEM_PROMPT = (
 )
 
 
+def _print_message(message) -> None:
+    """Only the parts a human actually wants to see: the agent's own text,
+    and which tool it's calling. Everything else (SystemMessage's tool/MCP
+    inventory, RateLimitEvent, ThinkingBlock, raw ToolResultBlock payloads)
+    is SDK/protocol plumbing the raw `print(message)` dumped unfiltered."""
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, TextBlock) and block.text:
+                print(block.text)
+            elif isinstance(block, ToolUseBlock):
+                name = block.name.rsplit("__", 1)[-1] if "__" in block.name else block.name
+                args = ", ".join(f"{k}={v!r}" for k, v in block.input.items())
+                print(f"\n🔧 {name}({args})")
+    elif isinstance(message, ResultMessage):
+        print(f"\n— {message.duration_ms / 1000:.1f}s · ${message.total_cost_usd:.3f} —")
+
+
 async def main(prompt: str) -> None:
     options = ClaudeAgentOptions(
         model=os.environ.get("CLAUDE_AGENT_MODEL", "sonnet"),
@@ -48,7 +72,7 @@ async def main(prompt: str) -> None:
         permission_mode="acceptEdits",
     )
     async for message in query(prompt=prompt, options=options):
-        print(message)
+        _print_message(message)
 
 
 if __name__ == "__main__":

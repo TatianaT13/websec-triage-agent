@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="/analyze">
+  <input type="url" name="url" placeholder="https://..." required autofocus>
+  <div class="options">
+    <label><input type="checkbox" name="render"> Rendu navigateur (JS)</label>
+    <label><input type="checkbox" name="check_virustotal"> VirusTotal (plus lent, quota)</label>
+  </div>
+  <button type="submit">Analyser</button>
+</form>
+<p class="muted">Mode rapide : pipeline heuristique + ML + RDAP direct, sans appel à l'agent Claude (gratuit, instantané). Pas d'explication en langage naturel.</p>
+{% endblock %}

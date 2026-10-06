@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}websec-triage-agent{% endblock %}</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 740px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.3rem; }
+    h1 a { color: inherit; text-decoration: none; }
+    .warning { background: #fff3cd; border: 1px solid #e6c343; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    form { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
+    input[type=url] { font-size: 1rem; padding: 0.6rem; border: 1px solid #ccc; border-radius: 6px; }
+    .options { display: flex; gap: 1.5rem; font-size: 0.9rem; color: #444; }
+    button { font-size: 1rem; padding: 0.6rem; border-radius: 6px; border: none; background: #1a1a1a; color: white; cursor: pointer; }
+    button:hover { background: #333; }
+    .badge { display: inline-block; padding: 0.3rem 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.9rem; color: white; }
+    .badge-phishing { background: #d32f2f; }
+    .badge-benign { background: #2e7d32; }
+    .badge-uncertain { background: #c8600b; }
+    .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+    .card h2 { font-size: 1rem; margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    td { padding: 0.3rem 0; vertical-align: top; }
+    td:first-child { color: #666; width: 40%; }
+    ul { margin: 0.3rem 0; padding-left: 1.3rem; font-size: 0.9rem; }
+    .muted { color: #888; font-size: 0.85rem; }
+    code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1><a href="/">websec-triage-agent</a></h1>
+  <div class="warning">Usage défensif et autorisé uniquement : tes propres sites, des échantillons de phishing déjà signalés, des labs/CTF.</div>
+  {% block content %}{% endblock %}
+</body>
+</html>
