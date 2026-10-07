@@ -83,6 +83,13 @@ def _heuristic_level(score: float) -> str:
     return "low"
 
 
+def _should_promote(new_f1: float, baseline_f1: float) -> bool:
+    """Strictly greater-than, not >=: on a tie, keep whatever's already on
+    disk rather than take the cost (and noise) of swapping files for no
+    measurable gain."""
+    return new_f1 > baseline_f1
+
+
 def _baseline_hand_coded_label(heuristic_score, ml_prob, domain_age_days, domain_age_unknown) -> str:
     """Re-implements verdict.py's current if/elif thresholds, so we can
     honestly compare the learned meta-model against what's already
@@ -159,9 +166,6 @@ def main() -> None:
     print(f"Hand-coded baseline (same test rows): accuracy={baseline_acc:.3f} f1={baseline_f1:.3f}")
     print("Meta-model coefficients:", dict(zip(META_FEATURE_NAMES, meta_model.coef_[0].round(3))))
 
-    MODELS_DIR.mkdir(exist_ok=True)
-    joblib.dump({"model": meta_model, "scaler": meta_scaler}, MODELS_DIR / "verdict_meta_model.joblib")
-
     card = {
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dataset": str(data_path),
@@ -174,10 +178,27 @@ def main() -> None:
         "baseline_hand_coded_f1": baseline_f1,
         "coefficients": dict(zip(META_FEATURE_NAMES, meta_model.coef_[0].tolist())),
     }
-    with open(MODELS_DIR / "verdict_meta_model.meta.json", "w", encoding="utf-8") as f:
-        json.dump(card, f, indent=2)
 
-    print(f"\nSaved to {MODELS_DIR / 'verdict_meta_model.joblib'}")
+    # Promote only if it actually beats the hand-coded thresholds on this
+    # same test split - "we trained something" isn't "it's better" (see
+    # docstring above). If not, both files are left exactly as they were
+    # (an older, better-performing model and ITS OWN meta.json describing
+    # it) rather than overwritten with this run's worse attempt -
+    # combine_verdicts() keeps using whichever model is actually on disk,
+    # or falls back to the hand-coded thresholds if there's none yet.
+    card["promoted"] = _should_promote(metrics["f1"], baseline_f1)
+    if card["promoted"]:
+        MODELS_DIR.mkdir(exist_ok=True)
+        joblib.dump({"model": meta_model, "scaler": meta_scaler}, MODELS_DIR / "verdict_meta_model.joblib")
+        with open(MODELS_DIR / "verdict_meta_model.meta.json", "w", encoding="utf-8") as f:
+            json.dump(card, f, indent=2)
+        print(f"\nf1 {metrics['f1']:.3f} > baseline {baseline_f1:.3f} - saved to {MODELS_DIR / 'verdict_meta_model.joblib'}")
+    else:
+        print(
+            f"\nf1 {metrics['f1']:.3f} <= baseline {baseline_f1:.3f} on this run - NOT promoted "
+            "(existing model file and meta.json, if any, left untouched; combine_verdicts() keeps "
+            "using whichever model is actually on disk, or falls back to the hand-coded thresholds)"
+        )
 
 
 if __name__ == "__main__":

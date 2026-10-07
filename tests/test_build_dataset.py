@@ -6,6 +6,8 @@ benign (label=0) training class."""
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from training import build_dataset as bd
@@ -35,6 +37,25 @@ def test_high_heuristic_score_is_rejected():
 
 def test_low_heuristic_score_alone_is_not_rejected():
     assert bd._reject_reason(_row(heuristic_score=3)) is None
+
+
+def test_fetch_html_with_deadline_returns_normal_results(monkeypatch):
+    monkeypatch.setattr(bd.wa, "fetch_html", lambda url: {"final_url": url, "status_code": 200, "html": "ok"})
+    assert bd._fetch_html_with_deadline("https://example.com")["html"] == "ok"
+
+
+def test_fetch_html_with_deadline_bounds_a_stalled_fetch(monkeypatch):
+    import time
+
+    def stalls_forever(url):
+        time.sleep(5)
+        return {"final_url": url, "status_code": 200, "html": "too late"}
+
+    monkeypatch.setattr(bd, "_FETCH_DEADLINE_S", 0.2)
+    monkeypatch.setattr(bd.wa, "fetch_html", stalls_forever)
+
+    with pytest.raises(bd.wa.FetchError, match="wall-clock deadline"):
+        bd._fetch_html_with_deadline("https://example.com")
 
 
 def test_collect_with_verify_benign_skips_rejected_candidates(monkeypatch):

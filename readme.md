@@ -136,6 +136,11 @@ python training/train.py data/dataset.csv
 # 3. Entraîne le méta-modèle de verdict (voir ci-dessous)
 python training/train_verdict_meta.py data/dataset.csv
 
+# 4. (optionnel, nécessite requirements-ml.txt) recollecte un sous-ensemble
+#    avec embeddings MarkupLM gelés, puis compare contre les features seules :
+python training/build_dataset.py 80 data/dataset.csv --with-embeddings
+python training/train_with_embeddings.py data/dataset.csv
+
 # Explorer les runs trackés :
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
@@ -146,9 +151,19 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 - **Stacking propre** : la probabilité ML utilisée comme entrée est calculée en *out-of-fold* (`cross_val_predict`) — jamais la prédiction d'un modèle sur les données qu'il a vues à l'entraînement, sinon le méta-modèle apprendrait à sur-faire confiance au premier modèle.
 - **VirusTotal reste hors du méta-modèle** : on n'a pas de données VT historiques pour l'entraîner (volontairement jamais interrogé pendant la collecte, cf. coût du quota), et "faire confiance à un vrai moteur antivirus" n'a pas vraiment besoin d'être appris — ça reste l'override codé à la main déjà en place.
-- **Comparaison honnête contre l'ancien code** : le script réévalue aussi les seuils codés à la main sur les mêmes lignes de test, pour vérifier que c'est une vraie amélioration et pas juste "on a entraîné un truc". Résultat actuel : F1 0,947 (appris) contre 0,919 (seuils à la main) — un vrai gain, mais modeste, cohérent avec l'échelle du dataset.
+- **Comparaison honnête contre l'ancien code, et promotion conditionnelle** : le script réévalue aussi les seuils codés à la main sur les mêmes lignes de test — pas pour information seulement : `training/train_verdict_meta.py` ne sauvegarde le modèle appris QUE s'il bat strictement la baseline sur ce run (`_should_promote`) ; sinon le fichier modèle (et son `meta.json`) existant restent intacts, et `card["promoted"]` dans le `meta.json` dit lequel des deux cas s'est produit. Historique réel, pas hypothétique : sur 160 échantillons, F1 0,947 (appris) contre 0,919 (seuils à la main) — promu. Après avoir fait grandir le dataset à 360 puis 427 échantillons (voir *Résultats* ci-dessous), le modèle réentraîné retombe à chaque fois autour de F1 0,91 contre ~0,94-0,95 pour la baseline sur ces nouveaux splits — **pas promu dans les deux cas**, l'ancien modèle (160 échantillons, toujours meilleur à ce jour) est resté en place. Sans cette vérification, on aurait silencieusement dégradé le verdict en production avec un modèle "plus récent" mais objectivement pire.
 - **Repli automatique** : si `models/verdict_meta_model.joblib` n'existe pas (ou que les extras MLOps ne sont pas installés), `combine_verdicts()` retombe sur les seuils codés à la main — jamais d'erreur, juste moins précis.
 - **Coefficients interprétables** : contrairement à un modèle plus opaque, on peut lire l'importance relative de chaque signal directement dans `models/verdict_meta_model.meta.json`.
+
+### v2 (expérimental) : embeddings MarkupLM gelés
+
+Piste additive, séparée du classifieur principal : un embedding **gelé** (`websec_agent/markuplm_embeddings.py`, `microsoft/markuplm-base` — le checkpoint de base, pas le `-finetuned-websrc` déjà utilisé par `ask_webpage`) résumant la structure DOM + le texte de la page en un vecteur fixe de 768 dimensions, moyenné sur les tokens réels (masque d'attention), concaténé aux features structurelles existantes.
+
+- **Pourquoi "gelé"** : le transformer n'est jamais fine-tuné ici, seulement utilisé comme extracteur de features fixe (comme un CNN pré-entraîné en transfer learning) — pas de coût d'entraînement supplémentaire, juste un forward pass par page.
+- **Capturé uniquement à la collecte** (`python training/build_dataset.py <n> data/dataset.csv --with-embeddings`) : c'est le seul moment où le HTML brut est encore disponible — le dataset ne le stocke jamais (voir docstring de `build_dataset.py`). Les lignes historiques collectées sans ce flag ont simplement une colonne `markuplm_embedding` vide ; ce n'est pas rétroactif.
+- **PCA avant concatenation** (`training/train_with_embeddings.py`) : 768 dimensions contre quelques centaines de lignes est un risque de surapprentissage sévère pour une régression logistique — l'embedding est d'abord réduit par PCA (fit sur le train seulement, pour éviter toute fuite) avant d'être concatené aux features structurelles.
+- **Comparaison honnête, piste séparée du classifieur principal** : `train_with_embeddings.py` compare "features structurelles seules" contre "+ embedding" sur les mêmes lignes de test et imprime les deux F1 côte à côte, sans trancher à l'avance. Rien dans le pipeline `analyze_webpage` par défaut ne dépend de ce module.
+- **Résultat réel, à prendre avec précaution** : sur les 67 lignes actuellement collectées avec embedding (27 phish, 40 bénin — un sous-ensemble du dataset de 427 lignes, voir plus haut pourquoi ce n'est qu'un sous-ensemble), F1 passe de 0,857 (features seules) à 0,933 (+ embedding, PCA à 20 composantes). Encourageant, mais le jeu de test ne fait qu'une vingtaine de lignes (30% de 67) — largement trop peu pour conclure que l'embedding "marche vraiment" plutôt que d'avoir eu de la chance sur ce split précis. À re-mesurer après avoir fait grandir ce sous-ensemble (`python training/build_dataset.py <n> data/dataset.csv --with-embeddings`) avant d'envisager de le brancher ailleurs que dans ce script de comparaison.
 
 **Sources de données** (`training/build_dataset.py`) :
 
@@ -162,7 +177,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **Âge du domaine (RDAP)** : un domaine enregistré il y a quelques jours est un signal classique de phishing, indépendant de la structure/marque. Via l'enregistrement IANA (bootstrap RDAP par TLD), pas l'ancien protocole WHOIS texte. **Non significatif pour les sous-domaines d'hébergeurs PaaS** (`vercel.app`, `pages.dev`, `netlify.app`...) : RDAP ne renvoie que la date d'enregistrement de la plateforme, pas celle du sous-domaine du site observé — détecté et signalé comme tel plutôt que de renvoyer un âge trompeur. Utilisé comme départage uniquement sur les verdicts "incertain" (`websec_agent/verdict.py`), jamais pour écraser un signal déjà net. *Trouvaille concrète pendant les tests : `roblox.com.mu` (le cas "bonne marque, mauvaise extension" documenté comme non détecté) s'est révélé enregistré il y a seulement 121 jours — exactement le genre de cas que ce signal permet de rattraper.* **Limite observée en usage réel** : la disponibilité RDAP varie selon le registre — `.fr` renvoie la date d'enregistrement, `.it` n'en a renvoyé aucune lors d'un test réel (certains registres ne la publient pas, souvent pour des raisons de vie privée). `age_days` reste `None` dans ce cas, sans fausse certitude.
 - **Tracking** : chaque run (modèle, hyperparamètres, métriques, cross-validation 5-fold) est loggé dans MLflow (`mlflow.db`, backend SQLite local, pas de serveur requis).
 - **Modèle versionné** : le meilleur modèle (par F1 sur le jeu de test) est copié vers `models/phishing_classifier.joblib` + une fiche modèle `models/phishing_classifier.meta.json` (date d'entraînement, taille du dataset, métriques) — c'est ce que charge l'outil `ml_classify_webpage`.
-- **Résultats** : le dataset et le modèle grandissent chaque semaine via le réentraînement automatique (voir ci-dessous) — `models/phishing_classifier.meta.json` contient toujours les chiffres du dernier run (taille du dataset, modèle retenu, métriques). Progression observée : 88 échantillons / F1 ≈ 0,92 → 366 / F1 ≈ 0,96 → 446 / F1 ≈ 0,93, puis **dataset reconstruit à neuf** (160 échantillons / F1 ≈ 0,95) lors de l'ajout de la feature d'âge du domaine — changer le schéma de features invalide les anciennes lignes (elles ne l'avaient pas), donc on régénère plutôt que de bricoler un remplissage factice. **Échelle recherche/démo, pas production** — à réentraîner avec beaucoup plus d'échantillons avant de s'y fier.
+- **Résultats** : le dataset et le modèle grandissent chaque semaine via le réentraînement automatique (voir ci-dessous) — `models/phishing_classifier.meta.json` contient toujours les chiffres du dernier run (taille du dataset, modèle retenu, métriques). Progression observée : 88 échantillons / F1 ≈ 0,92 → 366 / F1 ≈ 0,96 → 446 / F1 ≈ 0,93, puis **dataset reconstruit à neuf** (160 échantillons / F1 ≈ 0,95) lors de l'ajout de la feature d'âge du domaine — changer le schéma de features invalide les anciennes lignes (elles ne l'avaient pas), donc on régénère plutôt que de bricoler un remplissage factice. Dataset ensuite doublé à 360 échantillons (180/180) avec le filtre Tranco/PhiUSIIL déjà actif (voir *Limites connues* plus haut), puis complété à 427 lors de la collecte dédiée aux embeddings MarkupLM (voir plus bas) : `random_forest` promu avec F1 0,950, cv_f1 0,934±0,034 sur les 427 lignes actuelles — comparable (légèrement mieux) au run intermédiaire sur 360 lignes (F1 0,933), sur un split différent et plus diversifié. Pas une amélioration spectaculaire, mais pas une régression non plus ; voir aussi la note sur le méta-modèle de verdict ci-dessus, qui lui N'A PAS été promu sur ces deux runs. **Échelle recherche/démo, pas production** — à réentraîner avec beaucoup plus d'échantillons avant de s'y fier.
 
 ## Structure du projet
 
@@ -180,6 +195,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── virustotal.py            # vérification VirusTotal (70+ moteurs), optionnel
 │   ├── offline_content.py      # extraction HTML + SPF/DKIM/DMARC depuis un .eml
 │   ├── qr_decode.py            # décodage de QR code (OpenCV), optionnel
+│   ├── markuplm_embeddings.py  # embedding MarkupLM gelé (v2 MLOps, optionnel), voir plus bas
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
 ├── webapp.py                    # interface web FastAPI (mode rapide, sans agent), optionnelle
@@ -187,7 +203,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ├── training/
 │   ├── build_dataset.py        # construit data/dataset.csv (phishing réel + bénin)
 │   ├── train.py                # entraîne, track avec MLflow, promeut le meilleur modèle
-│   └── train_verdict_meta.py   # entraîne le méta-modèle qui combine heuristique+ML+âge
+│   ├── train_verdict_meta.py   # entraîne le méta-modèle qui combine heuristique+ML+âge
+│   └── train_with_embeddings.py # v2 MLOps : compare features seules vs + embeddings MarkupLM
 ├── models/
 │   ├── phishing_classifier.joblib      # modèle + scaler entraînés (versionné dans le repo)
 │   ├── phishing_classifier.meta.json   # fiche modèle (métriques, date, dataset)
@@ -212,7 +229,9 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_offline_content.py # tests de l'extraction .eml + SPF/DKIM/DMARC
 │   ├── test_qr_decode.py       # tests du décodage QR (vrai QR généré + vérifié)
 │   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
-│   ├── test_build_dataset.py   # tests du filtre de vérification des candidats bénins
+│   ├── test_build_dataset.py   # tests du filtre de vérification des candidats bénins + deadline réseau
+│   ├── test_markuplm_embeddings.py  # tests du pooling d'embedding (faux modèle, pas de réseau)
+│   ├── test_train_with_embeddings.py  # tests du parsing/filtrage des lignes avec embedding
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -244,6 +263,5 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 ## Prochaines étapes possibles
 
-- Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
-- v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
+- Dataset d'entraînement encore plus large (actuellement 427 échantillons, voir *Résultats* plus haut) — viser le millier pour sortir vraiment de l'échelle démo.
 - Déclencher `analyze_webpage_rendered` automatiquement (plutôt que l'agent devine) quand `analyze_webpage` revient vide pour une page qui ne devrait pas l'être.

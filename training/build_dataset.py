@@ -23,13 +23,17 @@ This is a small-scale research dataset (tens to a few hundred samples per
 class), not a production training set - see README.md -> MLOps.
 
 Usage:
-    python training/build_dataset.py [max_new_per_class] [out_csv]
+    python training/build_dataset.py [max_new_per_class] [out_csv] [--with-embeddings]
 
 Optional: set KAGGLE_API_TOKEN (or put the token in ~/.kaggle/access_token)
-to also pull from PhiUSIIL.
+to also pull from PhiUSIIL. --with-embeddings additionally captures a
+frozen MarkupLM embedding per row (requires requirements-ml.txt) - see
+training/train_with_embeddings.py.
 """
+import concurrent.futures
 import csv
 import io
+import json
 import os
 import random
 import sys
@@ -148,6 +152,32 @@ def fetch_phiusiil_benign_sample(n: int, seed: int = 42) -> list[str]:
     return urls[: n * 3]  # oversample, attrition expected (2024 snapshot)
 
 
+# wa.fetch_html()'s own TIMEOUT_S is a per-read idle timeout, not a
+# wall-clock cap on the whole request - a connection that trickles a byte
+# every few seconds never triggers it and can stall far longer. Hit in
+# practice: a single bad candidate host blocked an entire collection run
+# for several minutes with nothing written to disk yet (the dataset is
+# only written once, at the very end - see main()). This bounds the wait
+# regardless, so one bad host can't stall the whole run.
+_FETCH_DEADLINE_S = 20
+
+
+def _fetch_html_with_deadline(url: str) -> dict:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(wa.fetch_html, url)
+    try:
+        return future.result(timeout=_FETCH_DEADLINE_S)
+    except concurrent.futures.TimeoutError as exc:
+        raise wa.FetchError(
+            f"exceeded {_FETCH_DEADLINE_S}s wall-clock deadline (slow/stalled response)"
+        ) from exc
+    finally:
+        # Not wait=True (the default via a `with` block): the blocked fetch
+        # thread may never return if the socket truly stalls forever, and
+        # we must not let that block the rest of the collection run.
+        executor.shutdown(wait=False)
+
+
 def _reject_reason(row: dict) -> str | None:
     """None if an unverified third-party "benign" candidate (Tranco rank or
     PhiUSIIL label) looks safe to actually trust as label=0; otherwise the
@@ -170,13 +200,27 @@ def load_existing(out_csv: str) -> tuple[list[dict], set[str]]:
 
 
 def collect(
-    urls: list[str], label: int, max_count: int, seen: set[str], verify_benign: bool = False
+    urls: list[str],
+    label: int,
+    max_count: int,
+    seen: set[str],
+    verify_benign: bool = False,
+    with_embeddings: bool = False,
 ) -> list[dict]:
     """verify_benign=True runs _reject_reason() on each candidate before
     accepting it as label=0 - for sources whose "this is legitimate" claim
     isn't hand-verified (Tranco rank, PhiUSIIL label). Never set for
     label=1 (OpenPhish): that source's claim is "this is phishing", and
-    our own phishing heuristics have no business vetoing it."""
+    our own phishing heuristics have no business vetoing it.
+
+    with_embeddings=True additionally computes a frozen MarkupLM embedding
+    (websec_agent/markuplm_embeddings.py) while the page's HTML is still in
+    hand, and stores it (JSON-encoded) as row["markuplm_embedding"] - this
+    is the only point in the pipeline where the raw HTML is available, so
+    it's also the only point embeddings can be captured; see
+    training/train_with_embeddings.py for why this can't be done
+    retroactively on historical rows. Requires requirements-ml.txt;
+    noticeably slower (a transformer forward pass per page)."""
     rows = []
     for url in urls:
         if len(rows) >= max_count:
@@ -184,7 +228,7 @@ def collect(
         if url in seen:
             continue
         try:
-            fetched = wa.fetch_html(url)
+            fetched = _fetch_html_with_deadline(url)
             if fetched["final_url"] in seen:
                 continue
             if fetched["status_code"] != 200 or not fetched["html"].strip():
@@ -196,6 +240,10 @@ def collect(
                     seen.add(fetched["final_url"])
                     print(f"[benign] rejected ({reject_reason}): {url}")
                     continue
+            if with_embeddings:
+                from websec_agent import markuplm_embeddings as me
+
+                row["markuplm_embedding"] = json.dumps(me.embed_html(fetched["html"]))
             row["label"] = label
             row["source_url"] = fetched["final_url"]
             rows.append(row)
@@ -208,24 +256,45 @@ def collect(
 
 
 def main() -> None:
-    max_new_per_class = int(sys.argv[1]) if len(sys.argv) > 1 else 50
-    out_csv = sys.argv[2] if len(sys.argv) > 2 else "data/dataset.csv"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    with_embeddings = "--with-embeddings" in sys.argv[1:]
+    max_new_per_class = int(args[0]) if len(args) > 0 else 50
+    out_csv = args[1] if len(args) > 1 else "data/dataset.csv"
+
+    if with_embeddings:
+        # Fail fast with one clear message instead of the ML extras being
+        # missing silently turning into every single row being skipped
+        # inside collect()'s broad except-and-continue.
+        try:
+            import transformers  # noqa: F401
+        except ImportError:
+            print("--with-embeddings requires the ML extras: pip install -r requirements-ml.txt")
+            sys.exit(1)
 
     existing_rows, seen = load_existing(out_csv)
     print(f"Existing dataset: {len(existing_rows)} rows ({len(seen)} unique URLs)")
 
     phish_candidates = fetch_openphish_urls(limit=max_new_per_class * 6)
-    new_phish = collect(phish_candidates, label=1, max_count=max_new_per_class, seen=seen)
+    new_phish = collect(
+        phish_candidates, label=1, max_count=max_new_per_class, seen=seen, with_embeddings=with_embeddings
+    )
 
     # Hand-picked sites are trusted outright. Tranco/PhiUSIIL are not (see
     # _reject_reason's docstring) - only fetched for whatever quota the
     # curated list didn't already fill, and verified before being trusted.
-    new_benign = collect(BENIGN_URLS, label=0, max_count=max_new_per_class, seen=seen)
+    new_benign = collect(
+        BENIGN_URLS, label=0, max_count=max_new_per_class, seen=seen, with_embeddings=with_embeddings
+    )
     remaining = max_new_per_class - len(new_benign)
     if remaining > 0:
         third_party_candidates = fetch_tranco_sample(remaining) + fetch_phiusiil_benign_sample(remaining)
         new_benign += collect(
-            third_party_candidates, label=0, max_count=remaining, seen=seen, verify_benign=True
+            third_party_candidates,
+            label=0,
+            max_count=remaining,
+            seen=seen,
+            verify_benign=True,
+            with_embeddings=with_embeddings,
         )
 
     new_rows = new_phish + new_benign
@@ -235,9 +304,9 @@ def main() -> None:
         sys.exit(1)
 
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = feat.FEATURE_NAMES + ["heuristic_score", "label", "source_url"]
+    fieldnames = feat.FEATURE_NAMES + ["heuristic_score", "label", "source_url", "markuplm_embedding"]
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, restval="")
         writer.writeheader()
         writer.writerows(all_rows)
 
