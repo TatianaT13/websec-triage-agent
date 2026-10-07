@@ -61,6 +61,8 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 - **`ml_classify_webpage`** (optionnel, nécessite les dépendances MLOps) : appel autonome au classifieur entraîné seul, sans le reste du pipeline — utile pour un score ML rapide. `analyze_webpage` l'inclut déjà dans son verdict combiné.
 - **`check_virustotal`** / `analyze_webpage(check_virustotal=true)` (optionnel, nécessite `requirements-threatintel.txt` + une clé `VT_API_KEY` gratuite) : interroge 70+ moteurs de sécurité réels. Un verdict malveillant **l'emporte** sur nos propres signaux (vraie donnée vendeur, pas juste notre petit modèle) ; un rapport propre ne fait que départager un cas "incertain". Coûte du quota (4 requêtes/min, 500/jour en gratuit) et peut prendre jusqu'à ~30s pour une URL inconnue de VT — désactivé par défaut.
 - **`ask_webpage`** (optionnel, nécessite les dépendances ML) : QA en langage naturel sur le contenu d'une page via MarkupLM.
+- **`analyze_html`** : même pipeline que `analyze_webpage`, mais sur du HTML qu'on fournit directement (collé), sans fetch réseau — utile quand la page est déjà tombée entre le signalement et l'analyse. Demande un `url_hint` (l'URL supposée, même morte) pour donner un point de comparaison aux heuristiques de marque/domaine.
+- **`analyze_email`** : même chose à partir d'un fichier `.eml` sur disque — extrait le corps HTML (repli sur le texte brut sinon), et utilise par défaut **le domaine de l'expéditeur** comme `url_hint`, ce qui détourne intelligemment l'heuristique marque/domaine pour repérer un expéditeur usurpé ("PayPal" envoyé depuis un domaine qui n'est pas paypal.com).
 
 ## Installation
 
@@ -173,6 +175,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── render.py                # fetch via navigateur headless (Playwright), optionnel
 │   ├── domain_age.py            # âge du domaine via RDAP
 │   ├── virustotal.py            # vérification VirusTotal (70+ moteurs), optionnel
+│   ├── offline_content.py      # extraction HTML depuis un .eml (sans fetch réseau)
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
 ├── webapp.py                    # interface web FastAPI (mode rapide, sans agent), optionnelle
@@ -202,6 +205,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_model_security.py  # tests du scan picklescan (incl. pickle malveillant réel)
 │   ├── test_virustotal.py      # tests du client VirusTotal (mocké, + vérifié en live)
 │   ├── test_webapp.py          # tests de l'interface web (incl. protection XSS)
+│   ├── test_offline_content.py # tests de l'extraction .eml
+│   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -236,3 +241,5 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
 - v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
 - Déclencher `analyze_webpage_rendered` automatiquement (plutôt que l'agent devine) quand `analyze_webpage` revient vide pour une page qui ne devrait pas l'être.
+- **Décodage de QR codes (quishing)** — en forte hausse comme vecteur de phishing. Demande une étape de décodage d'image en amont, puis réutilise `analyze_html`/`analyze_webpage` sur l'URL décodée.
+- Analyse des en-têtes d'authentification email (SPF/DKIM/DMARC) pour `analyze_email` — un signal classique de phishing qu'on n'exploite pas encore, indépendant de tout le reste.

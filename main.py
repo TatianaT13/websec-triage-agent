@@ -32,6 +32,11 @@ SYSTEM_PROMPT = (
     "confidence, offer analyze_webpage with check_virustotal=true (or the "
     "standalone check_virustotal tool) for a real vendor-backed signal - mention "
     "it costs quota and extra setup (VT_API_KEY), so don't use it by default. "
+    "If the user has HTML they already saved (e.g. the live page is now down) "
+    "or a local .eml file, use analyze_html or analyze_email instead of trying "
+    "to fetch a dead URL - both need a url_hint (analyze_email defaults it to "
+    "the sender's domain) since the domain/brand-mismatch checks need "
+    "something to compare the content against. "
     "Use ask_webpage for follow-up questions about page content. Never claim "
     "certainty that a page is malicious from heuristics alone - present evidence "
     "and a confidence level. Assume all targets are authorized for inspection "
@@ -64,6 +69,8 @@ async def main(prompt: str) -> None:
         allowed_tools=[
             "mcp__websec__analyze_webpage",
             "mcp__websec__analyze_webpage_rendered",
+            "mcp__websec__analyze_html",
+            "mcp__websec__analyze_email",
             "mcp__websec__ask_webpage",
             "mcp__websec__export_report",
             "mcp__websec__ml_classify_webpage",

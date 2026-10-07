@@ -50,6 +50,50 @@ async def analyze_webpage_rendered(args):
 
 
 @tool(
+    "analyze_html",
+    "Run the full triage pipeline (same signals as analyze_webpage) on "
+    "HTML content you already have - pasted directly - instead of fetching "
+    "a live URL. Use this when the page is already offline/taken down but "
+    "you have its saved source. url_hint is the URL this content is "
+    "claimed or known to be associated with (even if it's dead now) - "
+    "required, since the brand/domain-mismatch checks need a domain to "
+    "compare against.",
+    {"html": str, "url_hint": str, "check_virustotal": bool},
+)
+async def analyze_html(args):
+    result = await asyncio.to_thread(
+        rpt.build_result_from_html, args["html"], args["url_hint"], args.get("check_virustotal", False)
+    )
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+
+@tool(
+    "analyze_email",
+    "Run the full triage pipeline on an .eml file saved on disk - extracts "
+    "its HTML body (falling back to the plain-text body if there is no "
+    "HTML part) and analyzes it like analyze_html. If url_hint isn't "
+    "given, defaults to the sender address's domain, repurposing the "
+    "brand/domain-mismatch heuristic to catch a spoofed sender ('PayPal' "
+    "branding sent from a domain that isn't paypal.com).",
+    {"file_path": str, "url_hint": str, "check_virustotal": bool},
+)
+async def analyze_email(args):
+    from . import offline_content as oc
+
+    try:
+        parsed = oc.parse_eml_file(args["file_path"])
+    except (OSError, ValueError) as exc:
+        return {"content": [{"type": "text", "text": f"Could not read/parse the .eml file: {exc}"}], "is_error": True}
+
+    url_hint = args.get("url_hint") or oc.guess_url_hint(parsed["from_domain"])
+    result = await asyncio.to_thread(
+        rpt.build_result_from_html, parsed["html"], url_hint, args.get("check_virustotal", False)
+    )
+    result["email"] = {k: parsed[k] for k in ("subject", "from", "to", "date")}
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+
+@tool(
     "ask_webpage",
     "Fetch a URL and answer a natural-language question about its content "
     "using MarkupLM (document QA over HTML). Requires the ML extras installed.",
@@ -130,6 +174,8 @@ websec_server = create_sdk_mcp_server(
     tools=[
         analyze_webpage,
         analyze_webpage_rendered,
+        analyze_html,
+        analyze_email,
         ask_webpage,
         export_report,
         ml_classify_webpage,

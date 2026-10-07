@@ -8,28 +8,13 @@ import json
 from datetime import datetime, timezone
 
 
-def build_result(url: str, render: bool = False, check_virustotal: bool = False) -> dict:
-    """Fetch + run the full pipeline (heuristic score, and the trained ML
-    classifier when available), returning one result dict with a single
-    combined verdict instead of two opinions the caller has to reconcile.
-
-    render=True fetches through a headless browser (websec_agent.render)
-    instead of a plain HTTP GET, so JS-injected content is visible - slower
-    and requires requirements-render.txt, so it's opt-in.
-
-    check_virustotal=True also queries VirusTotal (requirements-threatintel.txt
-    + a free VT_API_KEY) - opt-in because it costs real quota (4 req/min,
-    500/day on the free tier) and a fresh submission can take up to
-    max_wait_s to return a verdict, unlike every other signal here."""
+def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool) -> dict:
+    """Shared by build_result() (live fetch) and build_result_from_html()
+    (content you already have) - everything past "we have the HTML and
+    the URL it's associated with" is identical either way."""
     from . import verdict as vd
     from . import web_analysis as wa
 
-    if render:
-        from . import render as rnd
-
-        fetched = rnd.fetch_rendered_html(url)
-    else:
-        fetched = wa.fetch_html(url)
     html = fetched["html"]
     structure = wa.analyze_structure(html, fetched["final_url"])
     iocs = wa.extract_iocs(html, fetched["final_url"])
@@ -59,7 +44,7 @@ def build_result(url: str, render: bool = False, check_virustotal: bool = False)
             pass  # threat-intel extras not installed, or no VT_API_KEY - degrade gracefully
 
     return {
-        "requested_url": url,
+        "requested_url": requested_url,
         "final_url": fetched["final_url"],
         "status_code": fetched["status_code"],
         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -71,6 +56,48 @@ def build_result(url: str, render: bool = False, check_virustotal: bool = False)
         "virustotal": vt_result,
         "verdict": vd.combine_verdicts(heuristic, ml, domain_age_info, vt_result),
     }
+
+
+def build_result(url: str, render: bool = False, check_virustotal: bool = False) -> dict:
+    """Fetch + run the full pipeline (heuristic score, and the trained ML
+    classifier when available), returning one result dict with a single
+    combined verdict instead of two opinions the caller has to reconcile.
+
+    render=True fetches through a headless browser (websec_agent.render)
+    instead of a plain HTTP GET, so JS-injected content is visible - slower
+    and requires requirements-render.txt, so it's opt-in.
+
+    check_virustotal=True also queries VirusTotal (requirements-threatintel.txt
+    + a free VT_API_KEY) - opt-in because it costs real quota (4 req/min,
+    500/day on the free tier) and a fresh submission can take up to
+    max_wait_s to return a verdict, unlike every other signal here."""
+    from . import web_analysis as wa
+
+    if render:
+        from . import render as rnd
+
+        fetched = rnd.fetch_rendered_html(url)
+    else:
+        fetched = wa.fetch_html(url)
+
+    return _analyze_fetched(url, fetched, check_virustotal)
+
+
+def build_result_from_html(html: str, url_hint: str, check_virustotal: bool = False) -> dict:
+    """Like build_result(), but for content you already have (pasted
+    HTML, or extracted from an .eml via websec_agent.offline_content)
+    instead of a live URL to fetch - the common real case where the
+    phishing page is already taken down by the time you look at it, but
+    you saved its source.
+
+    url_hint is the URL this content is claimed/associated with (even if
+    no longer reachable, or - for an email - the sender's domain, via
+    offline_content.guess_url_hint): the domain/brand-mismatch heuristics
+    and the ML features need a reference point to compare the content
+    against, and without one those checks have nothing to work with.
+    status_code is None in the result - nothing was actually fetched."""
+    fetched = {"final_url": url_hint, "status_code": None, "html": html}
+    return _analyze_fetched(url_hint, fetched, check_virustotal)
 
 
 def build_markdown_report(result: dict) -> str:
@@ -130,7 +157,7 @@ def build_markdown_report(result: dict) -> str:
     return f"""# Rapport de triage web — {result['requested_url']}
 
 - **URL finale** : {result['final_url']}
-- **Code HTTP** : {result['status_code']}
+- **Code HTTP** : {result['status_code'] if result['status_code'] is not None else "(non récupéré — contenu fourni directement)"}
 - **Récupéré le** : {result['fetched_at']}
 - **Titre de la page** : {structure['title'] or '(aucun)'}
 {verdict_section}
