@@ -1,12 +1,62 @@
 {% extends "base.html" %}
 {% block content %}
-<form method="post" action="/analyze">
-  <input type="url" name="url" placeholder="https://..." required autofocus>
-  <div class="options">
-    <label><input type="checkbox" name="render"> Rendu navigateur (JS)</label>
-    <label><input type="checkbox" name="check_virustotal"> VirusTotal (plus lent, quota)</label>
+<div class="tabset">
+  <input type="radio" name="tab" id="tab-url" class="tab-radio" checked>
+  <input type="radio" name="tab" id="tab-html" class="tab-radio">
+  <input type="radio" name="tab" id="tab-email" class="tab-radio">
+  <input type="radio" name="tab" id="tab-qr" class="tab-radio">
+
+  <div class="tab-labels">
+    <label for="tab-url">URL</label>
+    <label for="tab-html">HTML collé</label>
+    <label for="tab-email">Email (.eml)</label>
+    <label for="tab-qr">QR code</label>
   </div>
-  <button type="submit">Analyser</button>
-</form>
+
+  <div class="tab-panel panel-url">
+    <form method="post" action="/analyze">
+      <input type="url" name="url" placeholder="https://..." required autofocus>
+      <div class="options">
+        <label><input type="checkbox" name="render"> Rendu navigateur (JS)</label>
+        <label><input type="checkbox" name="check_virustotal"> VirusTotal (plus lent, quota)</label>
+      </div>
+      <button type="submit">Analyser</button>
+    </form>
+  </div>
+
+  <div class="tab-panel panel-html">
+    <form method="post" action="/analyze-html">
+      <input type="url" name="url_hint" placeholder="URL associée (même morte) — https://..." required>
+      <textarea name="html" rows="8" placeholder="Collez le code source HTML de la page..." required></textarea>
+      <div class="options">
+        <label><input type="checkbox" name="check_virustotal"> VirusTotal (plus lent, quota)</label>
+      </div>
+      <button type="submit">Analyser</button>
+    </form>
+    <p class="muted">Pour une page déjà hors ligne, dont vous avez gardé le source. L'URL associée sert de point de comparaison aux heuristiques de marque/domaine.</p>
+  </div>
+
+  <div class="tab-panel panel-email">
+    <form method="post" action="/analyze-email" enctype="multipart/form-data">
+      <input type="file" name="eml_file" accept=".eml" required>
+      <div class="options">
+        <label><input type="checkbox" name="check_virustotal"> VirusTotal (plus lent, quota)</label>
+      </div>
+      <button type="submit">Analyser</button>
+    </form>
+    <p class="muted">Extrait le corps HTML de l'email et vérifie SPF/DKIM/DMARC depuis l'en-tête Authentication-Results.</p>
+  </div>
+
+  <div class="tab-panel panel-qr">
+    <form method="post" action="/analyze-qr" enctype="multipart/form-data">
+      <input type="file" name="qr_file" accept="image/*" required>
+      <div class="options">
+        <label><input type="checkbox" name="check_virustotal"> VirusTotal (plus lent, quota)</label>
+      </div>
+      <button type="submit">Analyser</button>
+    </form>
+    <p class="muted">Décode l'image puis analyse l'URL qu'elle encode (quishing). Nécessite <code>requirements-qr.txt</code>.</p>
+  </div>
+</div>
 <p class="muted">Mode rapide : pipeline heuristique + ML + RDAP direct, sans appel à l'agent Claude (gratuit, instantané). Pas d'explication en langage naturel.</p>
 {% endblock %}

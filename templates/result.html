@@ -11,11 +11,33 @@
     <table>
       <tr><td>URL demandée</td><td><code>{{ result.requested_url }}</code></td></tr>
       <tr><td>URL finale</td><td><code>{{ result.final_url }}</code></td></tr>
-      <tr><td>Code HTTP</td><td>{{ result.status_code }}</td></tr>
+      <tr><td>Code HTTP</td><td>{{ result.status_code if result.status_code is not none else "(non récupéré — contenu fourni directement)" }}</td></tr>
       <tr><td>Titre de la page</td><td>{{ result.structure.title or "(aucun)" }}</td></tr>
       <tr><td>Récupéré le</td><td class="muted">{{ result.fetched_at }}</td></tr>
+      {% if result.auto_rendered %}
+      <tr><td>Rendu JS automatique</td><td>le fetch brut semblait vide, un navigateur headless a été utilisé</td></tr>
+      {% endif %}
+      {% if result.qr_decoded_content %}
+      <tr><td>Contenu décodé du QR</td><td><code>{{ result.qr_decoded_content }}</code></td></tr>
+      {% endif %}
     </table>
   </div>
+
+  {% if result.email %}
+  <div class="card">
+    <h2>Email</h2>
+    <table>
+      <tr><td>Sujet</td><td>{{ result.email.subject or "(aucun)" }}</td></tr>
+      <tr><td>De</td><td><code>{{ result.email.from or "(aucun)" }}</code></td></tr>
+      <tr><td>À</td><td><code>{{ result.email.to or "(aucun)" }}</code></td></tr>
+      <tr><td>Date</td><td class="muted">{{ result.email.date or "(aucune)" }}</td></tr>
+      <tr><td>SPF</td><td>{{ result.email.auth.spf or "(absent)" }}</td></tr>
+      <tr><td>DKIM</td><td>{{ result.email.auth.dkim or "(absent)" }}</td></tr>
+      <tr><td>DMARC</td><td>{{ result.email.auth.dmarc or "(absent)" }}</td></tr>
+    </table>
+    <p class="muted">SPF/DKIM/DMARC sont auto-déclarés par le serveur qui a ajouté l'en-tête Authentication-Results, pas vérifiés par cet outil — voir README.</p>
+  </div>
+  {% endif %}
 
   <div class="card">
     <h2>Score heuristique</h2>

@@ -99,14 +99,16 @@ Sortie lisible : seuls les outils utilisés et la réponse de l'agent s'affichen
 
 ### Interface web (mode rapide, sans agent)
 
-Pour une analyse instantanée avec un badge coloré plutôt qu'une conversation — appelle directement le pipeline heuristique + ML + RDAP, sans passer par Claude (gratuit, pas d'explication en langage naturel) :
+Pour une analyse instantanée avec un badge coloré plutôt qu'une conversation — appelle directement le pipeline heuristique + ML + RDAP, sans passer par Claude (gratuit, pas d'explication en langage naturel). Quatre onglets (CSS pur, pas de JS) couvrant les mêmes points d'entrée que l'agent : **URL**, **HTML collé** (page déjà morte), **email `.eml`** (avec vérification SPF/DKIM/DMARC) et **QR code** (quishing) :
 
 ```bash
 pip install -r requirements-web.txt
 uvicorn webapp:app --reload
+# pour l'onglet QR code, optionnel :
+pip install -r requirements-qr.txt
 ```
 
-Puis ouvre <http://127.0.0.1:8000>. Ne pas exposer ça sur un réseau sans ajouter une authentification — c'est un outil local, sans contrôle d'accès, qui va chercher n'importe quelle URL qu'on lui soumet.
+Puis ouvre <http://127.0.0.1:8000>. Ne pas exposer ça sur un réseau sans ajouter une authentification — c'est un outil local, sans contrôle d'accès, qui va chercher n'importe quelle URL qu'on lui soumet (ou décode n'importe quel fichier qu'on lui envoie).
 
 ## Tests
 
@@ -225,7 +227,7 @@ Piste additive, séparée du classifieur principal : un embedding **gelé** (`we
 │   ├── test_domain_age.py      # tests du lookup RDAP
 │   ├── test_model_security.py  # tests du scan picklescan (incl. pickle malveillant réel)
 │   ├── test_virustotal.py      # tests du client VirusTotal (mocké, + vérifié en live)
-│   ├── test_webapp.py          # tests de l'interface web (incl. protection XSS)
+│   ├── test_webapp.py          # tests de l'interface web (4 onglets, incl. protection XSS)
 │   ├── test_offline_content.py # tests de l'extraction .eml + SPF/DKIM/DMARC
 │   ├── test_qr_decode.py       # tests du décodage QR (vrai QR généré + vérifié)
 │   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
