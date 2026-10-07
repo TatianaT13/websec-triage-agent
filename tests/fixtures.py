@@ -31,6 +31,15 @@ CREDENTIAL_PHISH_HTML = """
 </body></html>
 """
 
+# Same brand name, but on a country-code TLD that isn't actually one of the
+# brand's real regional domains (see README.md -> Limites connues: "bonne
+# marque, mauvaise extension"). Deliberately title-only/minimal so the test
+# isolates the brand/domain-allowlist check from every other heuristic.
+WRONG_TLD_LOOKALIKE_HTML = """
+<html><head><title>Roblox - Sign in</title></head>
+<body><p>Welcome to Roblox</p></body></html>
+"""
+
 PUNYCODE_IOC_HTML = """
 <html><head><title>Login</title></head>
 <body><a href="https://xn--pypal-4ve.com/login">Continue</a></body></html>

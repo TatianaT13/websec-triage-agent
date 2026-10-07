@@ -36,6 +36,37 @@ BRAND_KEYWORDS = [
     "ups", "usps", "irs", "booking.com", "airbnb", "spotify", "zoom",
     "github", "discord", "whatsapp", "telegram", "ebay", "wells fargo",
 ]
+# Brands whose real site isn't simply "<brand-without-spaces>.com", or that
+# have several genuine regional domains - so a plausible-looking but wrong
+# TLD (roblox.com.mu, paypal.de, steam.net...) isn't mistaken for the real
+# site just because the eTLD+1 *label* happens to match. Brands not listed
+# here fall back to {"<brand-without-spaces>.com"} in _legitimate_domains_for.
+BRAND_LEGITIMATE_DOMAINS: dict[str, frozenset[str]] = {
+    "steam": frozenset({"steampowered.com", "steamcommunity.com"}),
+    "irs": frozenset({"irs.gov"}),
+    "telegram": frozenset({"telegram.org"}),
+    "zoom": frozenset({"zoom.us"}),
+    "barclays": frozenset({"barclays.co.uk", "barclays.com"}),
+    "hsbc": frozenset({"hsbc.com", "hsbc.co.uk", "hsbc.fr"}),
+    "wells fargo": frozenset({"wellsfargo.com"}),
+    "booking.com": frozenset({"booking.com"}),
+    "amazon": frozenset({
+        "amazon.com", "amazon.fr", "amazon.de", "amazon.co.uk", "amazon.it",
+        "amazon.es", "amazon.ca", "amazon.com.mx", "amazon.com.br",
+        "amazon.co.jp", "amazon.in", "amazon.com.au", "amazon.nl",
+        "amazon.se", "amazon.pl", "amazon.ae", "amazon.sa", "amazon.sg",
+    }),
+    "ebay": frozenset({
+        "ebay.com", "ebay.co.uk", "ebay.de", "ebay.fr", "ebay.it", "ebay.es",
+        "ebay.ca", "ebay.com.au", "ebay.in",
+    }),
+}
+
+
+def _legitimate_domains_for(brand: str) -> frozenset[str]:
+    return BRAND_LEGITIMATE_DOMAINS.get(brand, frozenset({brand.replace(" ", "") + ".com"}))
+
+
 URGENCY_WORDS = [
     "verify your account", "suspended", "urgent", "immediately", "click here",
     "confirm your identity", "unusual activity", "limited time", "act now",
@@ -183,16 +214,6 @@ def _registrable_domain(hostname: str) -> str:
     return result.top_domain_under_public_suffix or hostname
 
 
-def _domain_label(hostname: str) -> str:
-    """The registrable label itself, stripped of its public suffix - e.g.
-    'wetransfer-smoky' for wetransfer-smoky.vercel.app, 'roblox' for
-    roblox.com.mu. Used to tell 'is the real brand's domain' apart from
-    'merely contains the brand name' (classic lookalike-domain phishing)."""
-    if not hostname:
-        return ""
-    return _TLD_EXTRACT(hostname).domain.lower()
-
-
 def analyze_structure(html: str, base_url: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     base_domain = _registrable_domain(_domain_of(base_url))
@@ -264,17 +285,18 @@ def score_phishing(html: str, structure: dict, iocs: dict, base_url: str) -> dic
     reasons: list[str] = []
     score = 0
     base_domain = _registrable_domain(_domain_of(base_url))
-    domain_label = _domain_label(_domain_of(base_url)).replace("-", "")
     title = (structure.get("title") or "").lower()
     # Visible text only (not script/style/tag/attribute content) to avoid
     # matching brand names that only appear in unrelated markup or JS.
     visible_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True).lower()[:5000]
 
     for brand in BRAND_KEYWORDS:
-        # Exact match on the domain's own label (hyphen-insensitive), not a
-        # substring check - "wetransfer-smoky" must NOT be treated as "is
-        # wetransfer's domain" just because it contains the brand name.
-        is_real_brand_domain = brand.replace(" ", "") == domain_label
+        # Exact match against the brand's known legitimate domain(s), not a
+        # label-only match - "wetransfer-smoky.vercel.app" must NOT be
+        # treated as "is wetransfer's domain" just because it contains the
+        # brand name, and neither must a wrong-but-plausible TLD like
+        # roblox.com.mu or paypal.de just because the *label* matches.
+        is_real_brand_domain = base_domain in _legitimate_domains_for(brand)
         pattern = re.compile(r"\b" + re.escape(brand) + r"\b")
         if pattern.search(title) and not is_real_brand_domain:
             score += 3

@@ -11,6 +11,7 @@ from .fixtures import (
     IP_LITERAL_IOC_HTML,
     LOOKALIKE_SUBDOMAIN_HTML,
     PUNYCODE_IOC_HTML,
+    WRONG_TLD_LOOKALIKE_HTML,
 )
 
 
@@ -38,6 +39,48 @@ def test_real_brand_domain_is_not_flagged_for_its_own_name():
     structure = wa.analyze_structure(LOOKALIKE_SUBDOMAIN_HTML, url)
     iocs = wa.extract_iocs(LOOKALIKE_SUBDOMAIN_HTML, url)
     verdict = wa.score_phishing(LOOKALIKE_SUBDOMAIN_HTML, structure, iocs, url)
+    assert not any("brand" in r for r in verdict["reasons"])
+
+
+def test_wrong_tld_lookalike_is_flagged_even_with_matching_label():
+    # roblox.com.mu: same eTLD+1 *label* as roblox.com, but not in roblox's
+    # legitimate-domain allowlist - must be flagged, not waved through just
+    # because the label matches (see README.md -> Limites connues).
+    url = "https://roblox.com.mu/"
+    structure = wa.analyze_structure(WRONG_TLD_LOOKALIKE_HTML, url)
+    iocs = wa.extract_iocs(WRONG_TLD_LOOKALIKE_HTML, url)
+    verdict = wa.score_phishing(WRONG_TLD_LOOKALIKE_HTML, structure, iocs, url)
+    assert any("roblox" in r and "roblox.com.mu" in r for r in verdict["reasons"])
+
+
+def test_brand_with_dot_in_its_own_keyword_is_not_self_flagged():
+    # "booking.com" is both the brand keyword and the real domain - a naive
+    # "<brand>.com" fallback would double up the suffix and never match.
+    html = "<html><head><title>Booking.com | Official site</title></head><body>Booking.com hotels</body></html>"
+    url = "https://booking.com/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert not any("brand" in r for r in verdict["reasons"])
+
+
+def test_brand_whose_real_domain_differs_from_brand_name_is_not_self_flagged():
+    # Steam's real domain is steampowered.com, not steam.com.
+    html = "<html><head><title>Welcome to Steam</title></head><body>Steam store</body></html>"
+    url = "https://store.steampowered.com/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert not any("brand" in r for r in verdict["reasons"])
+
+
+def test_legitimate_regional_domain_variant_is_not_flagged():
+    # amazon.fr is a genuine Amazon-operated regional domain, not a lookalike.
+    html = "<html><head><title>Amazon.fr</title></head><body>Amazon</body></html>"
+    url = "https://amazon.fr/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
     assert not any("brand" in r for r in verdict["reasons"])
 
 
