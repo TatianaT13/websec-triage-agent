@@ -62,7 +62,7 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 - **`check_virustotal`** / `analyze_webpage(check_virustotal=true)` (optionnel, nécessite `requirements-threatintel.txt` + une clé `VT_API_KEY` gratuite) : interroge 70+ moteurs de sécurité réels. Un verdict malveillant **l'emporte** sur nos propres signaux (vraie donnée vendeur, pas juste notre petit modèle) ; un rapport propre ne fait que départager un cas "incertain". Coûte du quota (4 requêtes/min, 500/jour en gratuit) et peut prendre jusqu'à ~30s pour une URL inconnue de VT — désactivé par défaut.
 - **`ask_webpage`** (optionnel, nécessite les dépendances ML) : QA en langage naturel sur le contenu d'une page via MarkupLM.
 - **`analyze_html`** : même pipeline que `analyze_webpage`, mais sur du HTML qu'on fournit directement (collé), sans fetch réseau — utile quand la page est déjà tombée entre le signalement et l'analyse. Demande un `url_hint` (l'URL supposée, même morte) pour donner un point de comparaison aux heuristiques de marque/domaine.
-- **`analyze_email`** : même chose à partir d'un fichier `.eml` sur disque — extrait le corps HTML (repli sur le texte brut sinon), et utilise par défaut **le domaine de l'expéditeur** comme `url_hint`, ce qui détourne intelligemment l'heuristique marque/domaine pour repérer un expéditeur usurpé ("PayPal" envoyé depuis un domaine qui n'est pas paypal.com).
+- **`analyze_email`** : même chose à partir d'un fichier `.eml` sur disque — extrait le corps HTML (repli sur le texte brut sinon), et utilise par défaut **le domaine de l'expéditeur** comme `url_hint`, ce qui détourne intelligemment l'heuristique marque/domaine pour repérer un expéditeur usurpé ("PayPal" envoyé depuis un domaine qui n'est pas paypal.com). Parse aussi **SPF/DKIM/DMARC** depuis l'en-tête `Authentication-Results` : un **échec** fait basculer le verdict vers phishing (asymétrique — un succès n'est volontairement **jamais** traité comme rassurant, voir *Limites connues*). Cas réel testé : un expéditeur usurpé à `service@paypal.com` passait inaperçu de tous les autres signaux (le domaine "paypal.com" matchait la marque, aucune incohérence structurelle) — seul SPF/DMARC a révélé l'usurpation.
 - **`analyze_qr_code`** (optionnel, nécessite `requirements-qr.txt`) : décode une image de QR code (OpenCV) et lance le pipeline complet sur l'URL qu'il contient — pour le *quishing* (QR malveillant collé sur un parcmètre, une facture, une affiche...). Si le QR encode autre chose qu'une URL (texte, vCard, Wi-Fi...), renvoie le contenu brut au lieu de forcer une analyse web.
 
 ## Installation
@@ -178,7 +178,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── render.py                # fetch via navigateur headless (Playwright), optionnel
 │   ├── domain_age.py            # âge du domaine via RDAP
 │   ├── virustotal.py            # vérification VirusTotal (70+ moteurs), optionnel
-│   ├── offline_content.py      # extraction HTML depuis un .eml (sans fetch réseau)
+│   ├── offline_content.py      # extraction HTML + SPF/DKIM/DMARC depuis un .eml
 │   ├── qr_decode.py            # décodage de QR code (OpenCV), optionnel
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
@@ -209,7 +209,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_model_security.py  # tests du scan picklescan (incl. pickle malveillant réel)
 │   ├── test_virustotal.py      # tests du client VirusTotal (mocké, + vérifié en live)
 │   ├── test_webapp.py          # tests de l'interface web (incl. protection XSS)
-│   ├── test_offline_content.py # tests de l'extraction .eml
+│   ├── test_offline_content.py # tests de l'extraction .eml + SPF/DKIM/DMARC
 │   ├── test_qr_decode.py       # tests du décodage QR (vrai QR généré + vérifié)
 │   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
 │   └── test_report.py          # tests du générateur de rapport/IOC
@@ -239,6 +239,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - ~~Pas de protection contre le DNS rebinding~~ — **corrigé après revue de sécurité** (`/security-review`) : le hostname n'était validé qu'une fois, puis `requests`/Chromium refaisaient leur propre résolution DNS indépendante à la connexion — un attaquant contrôlant le DNS de son propre domaine (exactement le cas ici, puisqu'on analyse des URLs de phishing) pouvait répondre différemment aux deux résolutions pour contourner le garde-fou. Corrigé en épinglant la connexion aux IP déjà validées : monkeypatch scopé de `socket.getaddrinfo` côté `fetch_html`, flag `--host-resolver-rules` de Chromium côté rendu navigateur. Les deux vérifiés avec une simulation réelle de rebinding (voir `tests/test_fetch_safety.py` et `tests/test_render.py`). **Résidu restant, honnêtement limité** : côté navigateur headless, seul le nom d'hôte de la page demandée est épinglé — une redirection ou une sous-ressource vers un *second* domaine contrôlé par l'attaquant reste protégée par la revalidation par requête (`_guard_route`), mais pas épinglée.
 - **VirusTotal n'est pas gratuit à volonté** : quota de 4 requêtes/min et 500/jour sur le tier gratuit, et volontairement non branché dans `training/build_dataset.py`/le réentraînement automatique (trop lent — jusqu'à ~30s/URL pour une soumission fraîche — et ça viderait le quota en quelques minutes sur un run qui traite des dizaines d'URLs). C'est un signal pour l'analyse interactive, pas pour l'entraînement.
 - URL soumises à VirusTotal (cas d'une URL que VT ne connaît pas encore) sont ajoutées à leur dataset et deviennent visibles publiquement — normal et voulu pour du phishing qu'on analyse, mais à garder en tête si tu pointais l'outil vers autre chose.
+- **SPF/DKIM/DMARC (`analyze_email`) sont auto-déclarés par le serveur qui a ajouté l'en-tête `Authentication-Results`, pas vérifiés par nous.** Un `.eml` fabriqué à la main par un attaquant (ou passé par un hop de transfert non fiable) pourrait contenir un en-tête forgé. C'est pour ça qu'un **succès n'est jamais traité comme une preuve de bénignité** — seul un **échec explicite** pousse vers phishing, et le texte du verdict dit toujours explicitement "rapporté par le serveur récepteur, non revérifié". Revérification indépendante (parser la chaîne `Received:` pour retrouver l'IP d'origine + refaire la requête DNS SPF nous-mêmes) serait plus solide mais nettement plus complexe — non fait pour l'instant.
 
 ## Prochaines étapes possibles
 
@@ -247,4 +248,3 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
 - v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
 - Déclencher `analyze_webpage_rendered` automatiquement (plutôt que l'agent devine) quand `analyze_webpage` revient vide pour une page qui ne devrait pas l'être.
-- Analyse des en-têtes d'authentification email (SPF/DKIM/DMARC) pour `analyze_email` — un signal classique de phishing qu'on n'exploite pas encore, indépendant de tout le reste.

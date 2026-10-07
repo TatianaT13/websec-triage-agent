@@ -74,7 +74,13 @@ async def analyze_html(args):
     "HTML part) and analyzes it like analyze_html. If url_hint isn't "
     "given, defaults to the sender address's domain, repurposing the "
     "brand/domain-mismatch heuristic to catch a spoofed sender ('PayPal' "
-    "branding sent from a domain that isn't paypal.com).",
+    "branding sent from a domain that isn't paypal.com). Also parses "
+    "SPF/DKIM/DMARC from the Authentication-Results header: an explicit "
+    "fail pushes the verdict toward phishing (a pass is NOT treated as "
+    "reassuring - see offline_content.apply_email_auth's docstring for "
+    "why). This is the receiving mail system's self-reported verdict, not "
+    "independently re-verified by this tool - say so if asked how solid "
+    "the auth signal is.",
     {"file_path": str, "url_hint": str, "check_virustotal": bool},
 )
 async def analyze_email(args):
@@ -90,6 +96,8 @@ async def analyze_email(args):
         rpt.build_result_from_html, parsed["html"], url_hint, args.get("check_virustotal", False)
     )
     result["email"] = {k: parsed[k] for k in ("subject", "from", "to", "date")}
+    result["email"]["auth"] = parsed["auth"]
+    result["verdict"] = oc.apply_email_auth(result["verdict"], parsed["auth"])
     return {"content": [{"type": "text", "text": str(result)}]}
 
 
