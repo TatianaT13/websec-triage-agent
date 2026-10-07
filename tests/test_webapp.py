@@ -1,5 +1,6 @@
 """Tests for the local web UI (fast mode - no LLM call). Uses FastAPI's
 TestClient (in-process, no real server needed)."""
+import io
 from unittest.mock import patch
 
 import pytest
@@ -49,6 +50,23 @@ def test_analyze_html_endpoint_works():
     )
     assert resp.status_code == 200
     assert 'class="badge badge-phishing"' in resp.text
+
+
+def test_analyze_html_rejects_oversized_paste():
+    big_html = "<html><body>" + "a" * (webapp.MAX_PASTED_HTML_CHARS + 1) + "</body></html>"
+    resp = client.post("/analyze-html", data={"html": big_html, "url_hint": "https://example.com/"})
+    assert resp.status_code == 200
+    assert "trop volumineux" in resp.text
+
+
+def test_analyze_email_rejects_oversized_upload():
+    big_content = b"X" * (webapp.MAX_UPLOAD_BYTES + 1)
+    resp = client.post(
+        "/analyze-email",
+        files={"eml_file": ("big.eml", io.BytesIO(big_content), "message/rfc822")},
+    )
+    assert resp.status_code == 200
+    assert "refusé" in resp.text
 
 
 def test_analyze_html_escapes_attacker_controlled_content():

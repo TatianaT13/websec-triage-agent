@@ -32,6 +32,39 @@ from websec_agent import web_analysis as wa
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
+# wa.fetch_html() already caps a live fetch at MAX_BYTES, but these three
+# endpoints take content directly from the visitor (no fetch to cap) -
+# UploadFile.read() with no size argument loads the entire file into one
+# bytes object regardless of size, so without this a file upload could
+# exhaust memory (confirmed: Starlette has no default cap on UploadFile
+# size, unlike plain Form() text fields - see below). Generous enough for
+# a real .eml (inline images included) or a phone photo of a QR code,
+# small enough to bound memory per request.
+MAX_UPLOAD_BYTES = 10_000_000
+# Starlette itself already rejects an oversized Form() text field (1024KB
+# default, confirmed empirically) before our handler even runs - this is
+# set comfortably under that so our own friendlier result.html error card
+# is what a visitor actually sees, instead of Starlette's raw JSON 400.
+MAX_PASTED_HTML_CHARS = 900_000
+
+
+class UploadTooLargeError(Exception):
+    pass
+
+
+async def _read_capped(upload: UploadFile, max_bytes: int = MAX_UPLOAD_BYTES) -> bytes:
+    chunks = []
+    total = 0
+    while True:
+        chunk = await upload.read(1 << 16)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise UploadTooLargeError(f"fichier de plus de {max_bytes // 1_000_000} Mo refusé")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -59,6 +92,12 @@ async def analyze_html(
     url_hint: str = Form(...),
     check_virustotal: bool = Form(False),
 ):
+    if len(html) > MAX_PASTED_HTML_CHARS:
+        return templates.TemplateResponse(
+            request,
+            "result.html",
+            {"error": f"HTML collé trop volumineux (max {MAX_PASTED_HTML_CHARS // 1_000_000} Mo)"},
+        )
     result = await asyncio.to_thread(rpt.build_result_from_html, html, url_hint, check_virustotal)
     return templates.TemplateResponse(request, "result.html", {"result": result})
 
@@ -69,7 +108,10 @@ async def analyze_email(
     eml_file: UploadFile = File(...),
     check_virustotal: bool = Form(False),
 ):
-    content = await eml_file.read()
+    try:
+        content = await _read_capped(eml_file)
+    except UploadTooLargeError as exc:
+        return templates.TemplateResponse(request, "result.html", {"error": str(exc)})
     with tempfile.NamedTemporaryFile(suffix=".eml") as tmp:
         tmp.write(content)
         tmp.flush()
@@ -103,7 +145,10 @@ async def analyze_qr(
             {"error": "Le décodage QR nécessite : pip install -r requirements-qr.txt"},
         )
 
-    content = await qr_file.read()
+    try:
+        content = await _read_capped(qr_file)
+    except UploadTooLargeError as exc:
+        return templates.TemplateResponse(request, "result.html", {"error": str(exc)})
     suffix = Path(qr_file.filename or "").suffix or ".png"
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(content)
