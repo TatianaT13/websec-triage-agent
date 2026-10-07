@@ -194,7 +194,7 @@ def main() -> None:
         sys.exit(1)
 
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = feat.FEATURE_NAMES + ["label", "source_url"]
+    fieldnames = feat.FEATURE_NAMES + ["heuristic_score", "label", "source_url"]
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

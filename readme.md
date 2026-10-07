@@ -128,9 +128,22 @@ python training/build_dataset.py 80 data/dataset.csv
 #    et promeut le meilleur modèle vers models/
 python training/train.py data/dataset.csv
 
+# 3. Entraîne le méta-modèle de verdict (voir ci-dessous)
+python training/train_verdict_meta.py data/dataset.csv
+
 # Explorer les runs trackés :
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
+
+### Méta-modèle de verdict (stacking)
+
+`websec_agent/verdict.py` combinait heuristique + ML + âge du domaine avec des seuils choisis à l'œil (`PHISHING_PROB_HIGH = 0.75`, etc.). `training/train_verdict_meta.py` entraîne à la place une petite régression logistique sur 4 entrées (`heuristic_score`, `ml_probability`, `domain_age_days`, `domain_age_unknown`) qui apprend elle-même comment les pondérer.
+
+- **Stacking propre** : la probabilité ML utilisée comme entrée est calculée en *out-of-fold* (`cross_val_predict`) — jamais la prédiction d'un modèle sur les données qu'il a vues à l'entraînement, sinon le méta-modèle apprendrait à sur-faire confiance au premier modèle.
+- **VirusTotal reste hors du méta-modèle** : on n'a pas de données VT historiques pour l'entraîner (volontairement jamais interrogé pendant la collecte, cf. coût du quota), et "faire confiance à un vrai moteur antivirus" n'a pas vraiment besoin d'être appris — ça reste l'override codé à la main déjà en place.
+- **Comparaison honnête contre l'ancien code** : le script réévalue aussi les seuils codés à la main sur les mêmes lignes de test, pour vérifier que c'est une vraie amélioration et pas juste "on a entraîné un truc". Résultat actuel : F1 0,947 (appris) contre 0,919 (seuils à la main) — un vrai gain, mais modeste, cohérent avec l'échelle du dataset.
+- **Repli automatique** : si `models/verdict_meta_model.joblib` n'existe pas (ou que les extras MLOps ne sont pas installés), `combine_verdicts()` retombe sur les seuils codés à la main — jamais d'erreur, juste moins précis.
+- **Coefficients interprétables** : contrairement à un modèle plus opaque, on peut lire l'importance relative de chaque signal directement dans `models/verdict_meta_model.meta.json`.
 
 **Sources de données** (`training/build_dataset.py`) :
 
@@ -166,10 +179,13 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ├── templates/                    # templates Jinja2 de l'interface web
 ├── training/
 │   ├── build_dataset.py        # construit data/dataset.csv (phishing réel + bénin)
-│   └── train.py                # entraîne, track avec MLflow, promeut le meilleur modèle
+│   ├── train.py                # entraîne, track avec MLflow, promeut le meilleur modèle
+│   └── train_verdict_meta.py   # entraîne le méta-modèle qui combine heuristique+ML+âge
 ├── models/
 │   ├── phishing_classifier.joblib      # modèle + scaler entraînés (versionné dans le repo)
-│   └── phishing_classifier.meta.json   # fiche modèle (métriques, date, dataset)
+│   ├── phishing_classifier.meta.json   # fiche modèle (métriques, date, dataset)
+│   ├── verdict_meta_model.joblib       # méta-modèle de combinaison des signaux
+│   └── verdict_meta_model.meta.json    # fiche modèle (métriques + comparaison au seuils à la main)
 ├── data/
 │   └── dataset.csv             # dataset labellisé (features + label + URL source)
 ├── scripts/
@@ -178,7 +194,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_heuristics.py      # tests de non-régression basés sur de vrais cas calibrés
 │   ├── test_features.py        # tests du vecteur de features
 │   ├── test_classifier.py      # tests de forme/plage sur l'inférence (pas de label figé)
-│   ├── test_verdict.py         # tests de la logique de combinaison heuristique + ML
+│   ├── test_verdict.py         # tests du repli codé à la main (sans méta-modèle)
+│   ├── test_verdict_meta.py    # tests du chemin méta-modèle (faux modèle à coefficients fixes)
 │   ├── test_render.py          # tests du fetch via navigateur headless
 │   ├── test_fetch_safety.py    # tests du garde-fou SSRF (incl. redirections)
 │   ├── test_domain_age.py      # tests du lookup RDAP

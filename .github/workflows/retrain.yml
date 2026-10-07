@@ -31,24 +31,33 @@ jobs:
       - name: Retrain and promote best model
         run: python training/train.py data/dataset.csv
 
-      - name: Run test suite against the new model
+      - name: Retrain the verdict meta-model
+        run: python training/train_verdict_meta.py data/dataset.csv
+
+      - name: Run test suite against the new models
         run: pytest tests/ -v
 
-      - name: Sanity-check the new model's F1 before committing
+      - name: Sanity-check the new models' metrics before committing
         run: |
           python -c "
           import json
           card = json.load(open('models/phishing_classifier.meta.json'))
           f1 = card['metrics']['f1']
-          print(f'New model f1={f1:.3f} ({card[\"model_type\"]}, n={card[\"n_samples\"]})')
+          print(f'Classifier f1={f1:.3f} ({card[\"model_type\"]}, n={card[\"n_samples\"]})')
           assert f1 >= 0.5, f'f1={f1:.3f} looks broken - refusing to commit'
+
+          meta = json.load(open('models/verdict_meta_model.meta.json'))
+          meta_f1 = meta['metrics']['f1']
+          print(f'Verdict meta-model f1={meta_f1:.3f} (baseline={meta[\"baseline_hand_coded_f1\"]:.3f})')
+          assert meta_f1 >= 0.5, f'meta-model f1={meta_f1:.3f} looks broken - refusing to commit'
           "
 
-      - name: Commit updated dataset and model
+      - name: Commit updated dataset and models
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/dataset.csv models/phishing_classifier.joblib models/phishing_classifier.meta.json
+          git add data/dataset.csv models/phishing_classifier.joblib models/phishing_classifier.meta.json \
+                  models/verdict_meta_model.joblib models/verdict_meta_model.meta.json
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else

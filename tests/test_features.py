@@ -6,9 +6,14 @@ from websec_agent.features import FEATURE_NAMES, extract_features
 from .fixtures import BENIGN_HTML, CREDENTIAL_PHISH_HTML, LOOKALIKE_SUBDOMAIN_HTML
 
 
-def test_feature_keys_match_feature_names():
+def test_feature_keys_include_all_feature_names():
+    # extract_features() also returns "heuristic_score" - not a classifier
+    # input (not in FEATURE_NAMES), kept as an auxiliary value for
+    # training/train_verdict_meta.py. FEATURE_NAMES must still be exactly
+    # what gets fed to the classifier, so check containment, not equality.
     row = extract_features(BENIGN_HTML, "https://example.com")
-    assert set(row.keys()) == set(FEATURE_NAMES)
+    assert set(FEATURE_NAMES) <= set(row.keys())
+    assert "heuristic_score" in row
 
 
 def test_benign_page_has_no_password_or_brand_signal():

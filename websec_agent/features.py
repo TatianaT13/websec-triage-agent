@@ -93,6 +93,11 @@ def extract_features(html: str, base_url: str) -> dict:
         "domain_age_days": age_info["age_days"] if age_known else _UNKNOWN_AGE_SENTINEL,
         "domain_age_unknown": int(not age_known),
         "domain_is_platform_hosted": int(age_info["is_platform_hosted"]),
+        # Not a classifier input (not in FEATURE_NAMES) - the exact aggregate
+        # heuristic score, stored alongside the granular features so
+        # training/train_verdict_meta.py can use it directly on future rows
+        # instead of reconstructing an approximation from the booleans above.
+        "heuristic_score": heuristic["score"],
     }
 
 

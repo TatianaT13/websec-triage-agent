@@ -1,7 +1,25 @@
-"""Tests for combining the heuristic score and the ML classifier's
-probability into one verdict. Uses hand-built heuristic/ml dicts (not the
-real trained model) so these stay deterministic across retrains."""
+"""Tests for the hand-coded fallback logic in combine_verdicts() - the
+path used when no learned meta-model is available (sklearn/joblib
+missing, or training/train_verdict_meta.py hasn't been run yet). Uses
+hand-built heuristic/ml dicts so these stay deterministic across
+retrains of either model.
+
+The learned-meta-model path itself is tested separately in
+test_verdict_meta.py, with a fake/fixed-coefficient bundle rather than
+the real trained artifact - that keeps both test files deterministic
+instead of coupled to whatever a retrain happens to learn.
+"""
+import pytest
+
+from websec_agent import verdict as vd
 from websec_agent.verdict import combine_verdicts
+
+
+@pytest.fixture(autouse=True)
+def no_meta_model(monkeypatch):
+    """Force the hand-coded fallback path, regardless of whether
+    models/verdict_meta_model.joblib happens to exist on disk."""
+    monkeypatch.setattr(vd, "_load_meta_model", lambda: None)
 
 LOW = {"score": 0, "level": "low", "reasons": []}
 MEDIUM = {"score": 5, "level": "medium", "reasons": ["some reason"]}

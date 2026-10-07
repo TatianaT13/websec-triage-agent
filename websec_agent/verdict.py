@@ -1,17 +1,71 @@
-"""Combine the hand-tuned heuristic score and the trained classifier's
-probability into one coherent verdict, instead of leaving the agent (or
-the user) to reconcile two independent opinions on the same page.
+"""Combine the hand-tuned heuristic score, the trained classifier's
+probability, and domain age into one coherent verdict, instead of
+leaving the agent (or the user) to reconcile several opinions by hand.
 
-Erring toward "phishing" when the two signals disagree is a deliberate
-security-triage choice: missing a real phishing page costs more than a
-false alarm that a human then dismisses.
+Two ways this combination happens, in order of preference:
+1. A learned meta-model (training/train_verdict_meta.py) if one has been
+   trained - a small logistic regression over
+   [heuristic_score, ml_probability, domain_age_days, domain_age_unknown]
+   that replaces the hand-picked thresholds below with learned weights.
+2. The hand-coded thresholds in this file, when the meta-model isn't
+   available (sklearn/joblib not installed, or not yet trained) - this
+   path is what ships before any training has happened, so it has to
+   work standalone, not just as documentation of what the meta-model
+   learned to approximate.
+
+Erring toward "phishing" when signals disagree is a deliberate
+security-triage choice either way: missing a real phishing page costs
+more than a false alarm that a human then dismisses.
 """
 from __future__ import annotations
+
+from pathlib import Path
 
 PHISHING_PROB_HIGH = 0.75
 PHISHING_PROB_LOW = 0.25
 YOUNG_DOMAIN_DAYS = 30
 ESTABLISHED_DOMAIN_DAYS = 365
+
+_META_MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "verdict_meta_model.joblib"
+_META_FEATURE_NAMES = ["heuristic_score", "ml_probability", "domain_age_days", "domain_age_unknown"]
+_meta_bundle = None
+_meta_unavailable = False
+
+
+def _load_meta_model():
+    global _meta_bundle, _meta_unavailable
+    if _meta_bundle is None and not _meta_unavailable:
+        if not _META_MODEL_PATH.exists():
+            _meta_unavailable = True
+        else:
+            try:
+                import joblib
+
+                _meta_bundle = joblib.load(_META_MODEL_PATH)
+            except ImportError:
+                _meta_unavailable = True
+    return _meta_bundle
+
+
+def _meta_model_probability(heuristic: dict, ml: dict | None, domain_age: dict | None) -> float | None:
+    """None when the meta-model isn't available, or when ml is None (the
+    meta-model was trained with an ML probability as one of its inputs -
+    without one there's nothing meaningful to feed it)."""
+    bundle = _load_meta_model()
+    if bundle is None or ml is None:
+        return None
+
+    import pandas as pd
+
+    if domain_age and domain_age.get("age_days") is not None:
+        age_days, age_unknown = domain_age["age_days"], 0
+    else:
+        age_days, age_unknown = -1, 1
+
+    row = [[heuristic["score"], ml["phishing_probability"], age_days, age_unknown]]
+    X = pd.DataFrame(row, columns=_META_FEATURE_NAMES)
+    X_scaled = bundle["scaler"].transform(X)
+    return float(bundle["model"].predict_proba(X_scaled)[0][1])
 
 
 def _domain_age_tiebreak(domain_age: dict | None) -> tuple[str, str] | None:
@@ -79,6 +133,7 @@ def combine_verdicts(
             "ml": None,
             "domain_age": domain_age,
             "virustotal": vt_result,
+            "meta_probability": None,
         }
 
     ml_prob = ml["phishing_probability"]
@@ -86,18 +141,32 @@ def combine_verdicts(
     heuristic_says_phish = heuristic["level"] in ("medium", "high")
     agreement = ml_says_phish == heuristic_says_phish
 
-    if heuristic["level"] == "high" or ml_prob >= PHISHING_PROB_HIGH:
-        label = "phishing"
-    elif heuristic["level"] == "low" and ml_prob <= PHISHING_PROB_LOW:
-        label = "benign"
+    meta_prob = _meta_model_probability(heuristic, ml, domain_age)
+    if meta_prob is not None:
+        # The meta-model already takes domain_age_days as one of its
+        # inputs, so the separate tiebreak below would be redundant (and
+        # could fight a signal the model already weighed in) - skip it.
+        if meta_prob >= PHISHING_PROB_HIGH:
+            label = "phishing"
+        elif meta_prob <= PHISHING_PROB_LOW:
+            label = "benign"
+        else:
+            label = "uncertain"
+        agree_note = "both signals agree" if agreement else "signals disagree"
+        confidence = f"learned meta-model (p={meta_prob:.2f}); {agree_note}"
     else:
-        label = "uncertain"
+        if heuristic["level"] == "high" or ml_prob >= PHISHING_PROB_HIGH:
+            label = "phishing"
+        elif heuristic["level"] == "low" and ml_prob <= PHISHING_PROB_LOW:
+            label = "benign"
+        else:
+            label = "uncertain"
 
-    confidence = "both signals agree" if agreement else "signals disagree - review manually"
-    if label == "uncertain":
-        tiebreak = _domain_age_tiebreak(domain_age)
-        if tiebreak:
-            label, confidence = tiebreak
+        confidence = "both signals agree" if agreement else "signals disagree - review manually"
+        if label == "uncertain":
+            tiebreak = _domain_age_tiebreak(domain_age)
+            if tiebreak:
+                label, confidence = tiebreak
 
     label, confidence = _apply_virustotal(label, confidence, vt_result)
 
@@ -109,4 +178,5 @@ def combine_verdicts(
         "ml": ml,
         "domain_age": domain_age,
         "virustotal": vt_result,
+        "meta_probability": meta_prob,
     }
