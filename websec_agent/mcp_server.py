@@ -94,6 +94,49 @@ async def analyze_email(args):
 
 
 @tool(
+    "analyze_qr_code",
+    "Decode a QR code image file and run the full triage pipeline on the "
+    "URL it encodes (quishing: a malicious QR code pasted over a "
+    "legitimate one on a poster, parking meter, invoice, etc.). If the QR "
+    "code encodes something other than an http(s) URL, returns the raw "
+    "decoded text instead - not everything a QR code encodes is a URL. "
+    "Requires requirements-qr.txt.",
+    {"file_path": str, "check_virustotal": bool},
+)
+async def analyze_qr_code(args):
+    from urllib.parse import urlsplit
+
+    from . import qr_decode as qr
+
+    try:
+        decoded = await asyncio.to_thread(qr.decode_qr_file, args["file_path"])
+    except (qr.QRDecodeError, RuntimeError) as exc:
+        return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+
+    if urlsplit(decoded).scheme not in ("http", "https"):
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"QR code decoded to non-URL content (not analyzed as a webpage): {decoded!r}",
+                }
+            ]
+        }
+
+    try:
+        result = await asyncio.to_thread(
+            rpt.build_result, decoded, False, args.get("check_virustotal", False)
+        )
+    except wa.FetchError as exc:
+        return {
+            "content": [{"type": "text", "text": f"QR code decoded to {decoded!r}; fetch failed: {exc}"}],
+            "is_error": True,
+        }
+    result["qr_decoded_content"] = decoded
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+
+@tool(
     "ask_webpage",
     "Fetch a URL and answer a natural-language question about its content "
     "using MarkupLM (document QA over HTML). Requires the ML extras installed.",
@@ -176,6 +219,7 @@ websec_server = create_sdk_mcp_server(
         analyze_webpage_rendered,
         analyze_html,
         analyze_email,
+        analyze_qr_code,
         ask_webpage,
         export_report,
         ml_classify_webpage,

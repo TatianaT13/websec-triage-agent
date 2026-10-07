@@ -36,7 +36,9 @@ SYSTEM_PROMPT = (
     "or a local .eml file, use analyze_html or analyze_email instead of trying "
     "to fetch a dead URL - both need a url_hint (analyze_email defaults it to "
     "the sender's domain) since the domain/brand-mismatch checks need "
-    "something to compare the content against. "
+    "something to compare the content against. If the user has a QR code "
+    "image (quishing - a malicious QR pasted over a legitimate one), use "
+    "analyze_qr_code to decode it and triage the URL it points to. "
     "Use ask_webpage for follow-up questions about page content. Never claim "
     "certainty that a page is malicious from heuristics alone - present evidence "
     "and a confidence level. Assume all targets are authorized for inspection "
@@ -71,6 +73,7 @@ async def main(prompt: str) -> None:
             "mcp__websec__analyze_webpage_rendered",
             "mcp__websec__analyze_html",
             "mcp__websec__analyze_email",
+            "mcp__websec__analyze_qr_code",
             "mcp__websec__ask_webpage",
             "mcp__websec__export_report",
             "mcp__websec__ml_classify_webpage",

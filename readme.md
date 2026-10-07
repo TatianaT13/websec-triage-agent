@@ -63,6 +63,7 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 - **`ask_webpage`** (optionnel, nécessite les dépendances ML) : QA en langage naturel sur le contenu d'une page via MarkupLM.
 - **`analyze_html`** : même pipeline que `analyze_webpage`, mais sur du HTML qu'on fournit directement (collé), sans fetch réseau — utile quand la page est déjà tombée entre le signalement et l'analyse. Demande un `url_hint` (l'URL supposée, même morte) pour donner un point de comparaison aux heuristiques de marque/domaine.
 - **`analyze_email`** : même chose à partir d'un fichier `.eml` sur disque — extrait le corps HTML (repli sur le texte brut sinon), et utilise par défaut **le domaine de l'expéditeur** comme `url_hint`, ce qui détourne intelligemment l'heuristique marque/domaine pour repérer un expéditeur usurpé ("PayPal" envoyé depuis un domaine qui n'est pas paypal.com).
+- **`analyze_qr_code`** (optionnel, nécessite `requirements-qr.txt`) : décode une image de QR code (OpenCV) et lance le pipeline complet sur l'URL qu'il contient — pour le *quishing* (QR malveillant collé sur un parcmètre, une facture, une affiche...). Si le QR encode autre chose qu'une URL (texte, vCard, Wi-Fi...), renvoie le contenu brut au lieu de forcer une analyse web.
 
 ## Installation
 
@@ -82,6 +83,8 @@ playwright install chromium
 # optionnel, pour check_virustotal :
 pip install -r requirements-threatintel.txt
 export VT_API_KEY="..."  # clé gratuite sur virustotal.com -> icône profil -> API Key
+# optionnel, pour analyze_qr_code :
+pip install -r requirements-qr.txt
 ```
 
 Authentification : connecte-toi avec `node_modules/.bin/claude` (login intégré), ou définis la variable d'environnement `ANTHROPIC_API_KEY` (voir `.env.example`).
@@ -176,6 +179,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── domain_age.py            # âge du domaine via RDAP
 │   ├── virustotal.py            # vérification VirusTotal (70+ moteurs), optionnel
 │   ├── offline_content.py      # extraction HTML depuis un .eml (sans fetch réseau)
+│   ├── qr_decode.py            # décodage de QR code (OpenCV), optionnel
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
 │   └── mcp_server.py           # déclaration des outils exposés à l'agent
 ├── webapp.py                    # interface web FastAPI (mode rapide, sans agent), optionnelle
@@ -206,6 +210,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_virustotal.py      # tests du client VirusTotal (mocké, + vérifié en live)
 │   ├── test_webapp.py          # tests de l'interface web (incl. protection XSS)
 │   ├── test_offline_content.py # tests de l'extraction .eml
+│   ├── test_qr_decode.py       # tests du décodage QR (vrai QR généré + vérifié)
 │   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
@@ -217,6 +222,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ├── requirements-render.txt
 ├── requirements-mlops.txt
 ├── requirements-threatintel.txt
+├── requirements-qr.txt
 ├── requirements-web.txt
 └── .env.example
 ```
@@ -241,5 +247,4 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
 - v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
 - Déclencher `analyze_webpage_rendered` automatiquement (plutôt que l'agent devine) quand `analyze_webpage` revient vide pour une page qui ne devrait pas l'être.
-- **Décodage de QR codes (quishing)** — en forte hausse comme vecteur de phishing. Demande une étape de décodage d'image en amont, puis réutilise `analyze_html`/`analyze_webpage` sur l'URL décodée.
 - Analyse des en-têtes d'authentification email (SPF/DKIM/DMARC) pour `analyze_email` — un signal classique de phishing qu'on n'exploite pas encore, indépendant de tout le reste.

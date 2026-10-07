@@ -1,0 +1,6 @@
+-r requirements.txt
+opencv-python-headless>=4.9
+# qrcode is only used by tests/test_qr_decode.py to generate a real QR
+# image to round-trip through decode_qr_file() - not needed by the
+# feature itself (websec_agent/qr_decode.py only ever decodes).
+qrcode[pil]>=7.4
