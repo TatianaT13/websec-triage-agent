@@ -82,6 +82,17 @@ def test_markdown_report_with_ml_includes_combined_section():
     assert "0.87" in md
 
 
+def test_markdown_report_mentions_auto_render_when_it_happened():
+    result = {**SAMPLE_RESULT, "auto_rendered": True}
+    md = build_markdown_report(result)
+    assert "Rendu JS automatique" in md
+
+
+def test_markdown_report_omits_auto_render_note_by_default():
+    md = build_markdown_report(SAMPLE_RESULT)
+    assert "Rendu JS automatique" not in md
+
+
 def test_ioc_bundle_includes_combined_verdict_when_available():
     result = {
         **SAMPLE_RESULT,

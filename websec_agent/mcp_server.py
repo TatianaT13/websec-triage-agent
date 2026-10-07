@@ -14,10 +14,17 @@ from . import web_analysis as wa
     "extracted IOCs (domains, emails, punycode/IP links), the heuristic "
     "phishing score with reasons, the trained ML classifier's probability "
     "(when available), the domain's registration age via RDAP, and one "
-    "combined verdict reconciling all of it. Set check_virustotal=true to "
-    "also query VirusTotal (70+ security vendors) - slower (up to ~30s for "
-    "a URL VT hasn't seen before) and costs quota (requires VT_API_KEY and "
-    "requirements-threatintel.txt), so it's off by default.",
+    "combined verdict reconciling all of it. If the plain fetch comes back "
+    "looking suspiciously empty (no forms/links/text - e.g. a single-page "
+    "app whose content is JS-injected), this automatically retries through "
+    "a headless browser on its own (result['auto_rendered'] says whether "
+    "that happened) - no need to manually switch to "
+    "analyze_webpage_rendered for that specific case, only use that one "
+    "directly if you want rendering forced from the start. Set "
+    "check_virustotal=true to also query VirusTotal (70+ security vendors) "
+    "- slower (up to ~30s for a URL VT hasn't seen before) and costs quota "
+    "(requires VT_API_KEY and requirements-threatintel.txt), so it's off "
+    "by default.",
     {"url": str, "check_virustotal": bool},
 )
 async def analyze_webpage(args):
@@ -32,13 +39,16 @@ async def analyze_webpage(args):
 
 @tool(
     "analyze_webpage_rendered",
-    "Like analyze_webpage, but renders the page in a headless browser first "
-    "(Playwright) so JS-injected content is visible - e.g. a login form "
-    "built client-side that never appears in the raw HTML. Slower and "
-    "heavier: use it when analyze_webpage comes back looking suspiciously "
-    "empty (no forms/links/text) for a page that should have content. "
-    "Requires requirements-render.txt and a one-time `playwright install "
-    "chromium`.",
+    "Like analyze_webpage, but always renders the page in a headless "
+    "browser first (Playwright) so JS-injected content is visible - e.g. "
+    "a login form built client-side that never appears in the raw HTML. "
+    "analyze_webpage already does this automatically when its plain fetch "
+    "looks suspiciously empty, so prefer this tool only when you want "
+    "rendering forced unconditionally (e.g. you already know the page "
+    "needs it, or the auto-retry's heuristic missed a case where content "
+    "is JS-injected but the page isn't textually empty). Slower and "
+    "heavier. Requires requirements-render.txt and a one-time `playwright "
+    "install chromium`.",
     {"url": str},
 )
 async def analyze_webpage_rendered(args):

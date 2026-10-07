@@ -251,6 +251,24 @@ def analyze_structure(html: str, base_url: str) -> dict:
     }
 
 
+# Below this many visible characters (and no forms/links either), a plain
+# HTTP fetch is more likely to have missed JS-injected content than to be
+# looking at a genuinely near-blank page - used to auto-retry through a
+# headless browser (see report.build_result). Heuristic, not certain: a
+# handful of legitimate pages are also this sparse, so this only decides
+# whether a second, rendered fetch is worth the extra cost - not a verdict.
+_LOOKS_EMPTY_MAX_CHARS = 40
+
+
+def looks_js_rendered_empty(html: str, structure: dict) -> bool:
+    visible_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
+    return (
+        len(visible_text) < _LOOKS_EMPTY_MAX_CHARS
+        and not structure["forms"]
+        and structure["link_count"] == 0
+    )
+
+
 EMAIL_RE = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 IP_URL_RE = re.compile(r"https?://\d{1,3}(?:\.\d{1,3}){3}")
 

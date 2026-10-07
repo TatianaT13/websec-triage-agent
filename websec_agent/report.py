@@ -67,20 +67,43 @@ def build_result(url: str, render: bool = False, check_virustotal: bool = False)
     instead of a plain HTTP GET, so JS-injected content is visible - slower
     and requires requirements-render.txt, so it's opt-in.
 
+    render=False (the default) still auto-retries through the headless
+    browser if the plain fetch comes back looking suspiciously empty (see
+    web_analysis.looks_js_rendered_empty) - no need for the caller to
+    notice and ask for render=True explicitly. If the render extras aren't
+    installed, or the rendered fetch itself fails, this falls back to the
+    plain result rather than erroring - result["auto_rendered"] says what
+    happened (True/False/None - None means it wasn't attempted at all,
+    either because render=True already requested it explicitly, or the
+    plain fetch didn't look empty).
+
     check_virustotal=True also queries VirusTotal (requirements-threatintel.txt
     + a free VT_API_KEY) - opt-in because it costs real quota (4 req/min,
     500/day on the free tier) and a fresh submission can take up to
     max_wait_s to return a verdict, unlike every other signal here."""
     from . import web_analysis as wa
 
+    auto_rendered = None
     if render:
         from . import render as rnd
 
         fetched = rnd.fetch_rendered_html(url)
     else:
         fetched = wa.fetch_html(url)
+        structure = wa.analyze_structure(fetched["html"], fetched["final_url"])
+        if wa.looks_js_rendered_empty(fetched["html"], structure):
+            auto_rendered = False
+            try:
+                from . import render as rnd
 
-    return _analyze_fetched(url, fetched, check_virustotal)
+                fetched = rnd.fetch_rendered_html(url)
+                auto_rendered = True
+            except (RuntimeError, wa.FetchError):
+                pass  # render extras missing, or rendering itself failed - keep the plain fetch
+
+    result = _analyze_fetched(url, fetched, check_virustotal)
+    result["auto_rendered"] = auto_rendered
+    return result
 
 
 def build_result_from_html(html: str, url_hint: str, check_virustotal: bool = False) -> dict:
@@ -95,9 +118,14 @@ def build_result_from_html(html: str, url_hint: str, check_virustotal: bool = Fa
     offline_content.guess_url_hint): the domain/brand-mismatch heuristics
     and the ML features need a reference point to compare the content
     against, and without one those checks have nothing to work with.
-    status_code is None in the result - nothing was actually fetched."""
+    status_code is None in the result - nothing was actually fetched.
+    There's no live URL to re-fetch through a headless browser if this
+    content looks JS-rendered-empty, so result["auto_rendered"] is always
+    None here - unlike build_result()."""
     fetched = {"final_url": url_hint, "status_code": None, "html": html}
-    return _analyze_fetched(url_hint, fetched, check_virustotal)
+    result = _analyze_fetched(url_hint, fetched, check_virustotal)
+    result["auto_rendered"] = None
+    return result
 
 
 def build_markdown_report(result: dict) -> str:
@@ -154,12 +182,18 @@ def build_markdown_report(result: dict) -> str:
 {vt_line}
 """
 
+    auto_rendered_line = (
+        "\n- **Rendu JS automatique** : la récupération brute semblait vide, un navigateur headless a été utilisé à la place."
+        if result.get("auto_rendered")
+        else ""
+    )
+
     return f"""# Rapport de triage web — {result['requested_url']}
 
 - **URL finale** : {result['final_url']}
 - **Code HTTP** : {result['status_code'] if result['status_code'] is not None else "(non récupéré — contenu fourni directement)"}
 - **Récupéré le** : {result['fetched_at']}
-- **Titre de la page** : {structure['title'] or '(aucun)'}
+- **Titre de la page** : {structure['title'] or '(aucun)'}{auto_rendered_line}
 {verdict_section}
 ## Score heuristique de phishing
 
