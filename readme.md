@@ -154,7 +154,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 - **Phishing (label=1)** : flux public [OpenPhish](https://openphish.com/) (~300 URLs vivantes à un instant donné, renouvelées en continu).
 - **Bénin (label=0)** : une petite liste de sites connus choisis à la main, un échantillon aléatoire de [Tranco](https://tranco-list.eu/) (liste de domaines pensée pour la recherche sécu, plus diversifiée qu'un simple top Alexa), et — si `KAGGLE_API_TOKEN` est défini (ou un token dans `~/.kaggle/access_token`) — un échantillon des URLs légitimes du dataset [PhiUSIIL](https://www.kaggle.com/datasets/ndarvind/phiusiil-phishing-url-dataset) (235k lignes, mais on n'utilise que les légitimes : ses URLs de phishing datent de 2024 et sont quasiment toutes mortes).
-- **Risque connu, non filtré** : Tranco et PhiUSIIL sont des classements/datasets tiers, pas vérifiés à la main — un domaine malveillant ou typosquatté qui serait temporairement bien classé pourrait se glisser dans la classe "bénin" (ex. observé en pratique : `paypalverify.net` est apparu comme candidat via Tranco, écarté seulement parce qu'il a timeout). À surveiller si les métriques dérivent anormalement.
+- **Filtrés avant d'être labellisés "bénin"** : Tranco et PhiUSIIL sont des classements/datasets tiers, pas vérifiés à la main — un domaine malveillant ou typosquatté temporairement bien classé pourrait sinon se glisser dans la classe "bénin" (observé en pratique : `paypalverify.net` est apparu comme candidat via Tranco, écarté seulement parce qu'il a timeout). `collect(..., verify_benign=True)` passe chaque candidat Tranco/PhiUSIIL par `_reject_reason()` — qui réutilise les features déjà calculées (donc gratuit, aucun appel réseau en plus) — et rejette tout candidat dont nos propres heuristiques détectent un mismatch marque/domaine ou un score heuristique medium/high, avant de le faire confiance comme label=0. La liste de sites choisis à la main (`BENIGN_URLS`) reste, elle, prise telle quelle. Filtre imparfait par construction (il ne voit que ce que nos propres heuristiques savent détecter) — à surveiller si les métriques dérivent anormalement.
 
 **Réentraînement automatique** (`.github/workflows/retrain.yml`) : un job planifié (tous les lundis, ou déclenchable manuellement depuis l'onglet Actions) fait tourner `build_dataset.py` puis `train.py`, vérifie que le F1 du nouveau modèle reste raisonnable, lance les tests, et commit `data/dataset.csv` + `models/` si tout passe. Le secret `KAGGLE_API_TOKEN` est configuré côté repo (GitHub Actions secrets) pour que la source PhiUSIIL fonctionne aussi en CI.
 
@@ -212,6 +212,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 │   ├── test_offline_content.py # tests de l'extraction .eml + SPF/DKIM/DMARC
 │   ├── test_qr_decode.py       # tests du décodage QR (vrai QR généré + vérifié)
 │   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
+│   ├── test_build_dataset.py   # tests du filtre de vérification des candidats bénins
 │   └── test_report.py          # tests du générateur de rapport/IOC
 ├── .github/workflows/
 │   ├── tests.yml                # CI : tests sur chaque push/PR
@@ -243,7 +244,6 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 ## Prochaines étapes possibles
 
-- Filtrage/vérification manuelle des candidats Tranco/PhiUSIIL avant de les labelliser "bénin" (risque de faux négatifs décrit ci-dessus).
 - Dataset d'entraînement plus large (centaines/milliers d'échantillons) pour un classifieur plus fiable qu'un modèle de démo.
 - v2 MLOps : embeddings MarkupLM gelés comme features supplémentaires (voir discussion dans l'historique du projet) si le dataset grandit assez pour le justifier.
 - Déclencher `analyze_webpage_rendered` automatiquement (plutôt que l'agent devine) quand `analyze_webpage` revient vide pour une page qui ne devrait pas l'être.

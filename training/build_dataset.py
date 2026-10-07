@@ -49,6 +49,16 @@ TRANCO_LIST = "https://tranco-list.eu/top-1m.csv.zip"
 KAGGLE_PHIUSIIL_DATASET = "ndarvind/phiusiil-phishing-url-dataset"
 KAGGLE_CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / ".cache"
 
+# Tranco/PhiUSIIL are third-party rankings/datasets, not hand-verified - a
+# malicious or typosquatted domain that's temporarily well-ranked (or
+# mislabeled) could otherwise slip into the benign class. Real near-miss
+# observed during calibration: paypalverify.net surfaced as a Tranco
+# candidate, discarded only because it happened to time out (see
+# README.md -> Limites connues). _reject_reason below is a cheap second
+# opinion using our own heuristic signals before trusting the source's
+# label - matches score_phishing's own "medium" cutoff, not re-derived.
+_BENIGN_CANDIDATE_MAX_HEURISTIC_SCORE = 4
+
 BENIGN_URLS = [
     "https://example.com", "https://en.wikipedia.org/wiki/Phishing", "https://www.python.org",
     "https://www.mozilla.org", "https://github.com", "https://www.gnu.org", "https://httpbin.org",
@@ -138,6 +148,18 @@ def fetch_phiusiil_benign_sample(n: int, seed: int = 42) -> list[str]:
     return urls[: n * 3]  # oversample, attrition expected (2024 snapshot)
 
 
+def _reject_reason(row: dict) -> str | None:
+    """None if an unverified third-party "benign" candidate (Tranco rank or
+    PhiUSIIL label) looks safe to actually trust as label=0; otherwise the
+    reason it was rejected. Reuses features extract_features() already
+    computed - no extra network calls, no extra cost to check."""
+    if row["brand_in_title_mismatch"] or row["brand_in_text_mismatch"]:
+        return "brand/domain mismatch heuristic fired"
+    if row["heuristic_score"] >= _BENIGN_CANDIDATE_MAX_HEURISTIC_SCORE:
+        return f"heuristic score {row['heuristic_score']} (medium/high)"
+    return None
+
+
 def load_existing(out_csv: str) -> tuple[list[dict], set[str]]:
     path = Path(out_csv)
     if not path.exists():
@@ -147,7 +169,14 @@ def load_existing(out_csv: str) -> tuple[list[dict], set[str]]:
     return rows, {r["source_url"] for r in rows}
 
 
-def collect(urls: list[str], label: int, max_count: int, seen: set[str]) -> list[dict]:
+def collect(
+    urls: list[str], label: int, max_count: int, seen: set[str], verify_benign: bool = False
+) -> list[dict]:
+    """verify_benign=True runs _reject_reason() on each candidate before
+    accepting it as label=0 - for sources whose "this is legitimate" claim
+    isn't hand-verified (Tranco rank, PhiUSIIL label). Never set for
+    label=1 (OpenPhish): that source's claim is "this is phishing", and
+    our own phishing heuristics have no business vetoing it."""
     rows = []
     for url in urls:
         if len(rows) >= max_count:
@@ -161,6 +190,12 @@ def collect(urls: list[str], label: int, max_count: int, seen: set[str]) -> list
             if fetched["status_code"] != 200 or not fetched["html"].strip():
                 continue
             row = feat.extract_features(fetched["html"], fetched["final_url"])
+            if verify_benign:
+                reject_reason = _reject_reason(row)
+                if reject_reason:
+                    seen.add(fetched["final_url"])
+                    print(f"[benign] rejected ({reject_reason}): {url}")
+                    continue
             row["label"] = label
             row["source_url"] = fetched["final_url"]
             rows.append(row)
@@ -182,10 +217,16 @@ def main() -> None:
     phish_candidates = fetch_openphish_urls(limit=max_new_per_class * 6)
     new_phish = collect(phish_candidates, label=1, max_count=max_new_per_class, seen=seen)
 
-    benign_candidates = (
-        BENIGN_URLS + fetch_tranco_sample(max_new_per_class) + fetch_phiusiil_benign_sample(max_new_per_class)
-    )
-    new_benign = collect(benign_candidates, label=0, max_count=max_new_per_class, seen=seen)
+    # Hand-picked sites are trusted outright. Tranco/PhiUSIIL are not (see
+    # _reject_reason's docstring) - only fetched for whatever quota the
+    # curated list didn't already fill, and verified before being trusted.
+    new_benign = collect(BENIGN_URLS, label=0, max_count=max_new_per_class, seen=seen)
+    remaining = max_new_per_class - len(new_benign)
+    if remaining > 0:
+        third_party_candidates = fetch_tranco_sample(remaining) + fetch_phiusiil_benign_sample(remaining)
+        new_benign += collect(
+            third_party_candidates, label=0, max_count=remaining, seen=seen, verify_benign=True
+        )
 
     new_rows = new_phish + new_benign
     all_rows = existing_rows + new_rows
