@@ -69,6 +69,46 @@ async def analyze_webpage_rendered(args):
 
 
 @tool(
+    "screenshot_webpage",
+    "Take a screenshot of a live page through the same SSRF-guarded, "
+    "DNS-pinned headless browser as analyze_webpage_rendered, and return "
+    "it as an image for you to look at directly with your own vision - "
+    "no separate API call. Use this for visual brand-impersonation "
+    "judgment the HTML/text-based tools can't do: does the page's actual "
+    "layout and visual design genuinely resemble the brand it claims to "
+    "be? IMPORTANT CAVEAT, explain this if asked: a phishing page "
+    "commonly copies the real brand's logo pixel-for-pixel on purpose, "
+    "so 'the logo looks exactly right' is NOT evidence of legitimacy by "
+    "itself - the domain is still what matters most. What a screenshot "
+    "CAN catch that a copied logo alone can't fake: broken/inconsistent "
+    "styling, a login form in a visually unusual place, layout that "
+    "doesn't match the real site's actual design despite the right logo. "
+    "Treat your own visual read as one more heuristic signal, same "
+    "caveat as every other tool here - never claim certainty from it "
+    "alone. Requires requirements-render.txt and a one-time `playwright "
+    "install chromium`.",
+    {"url": str},
+)
+async def screenshot_webpage(args):
+    import base64
+
+    from . import render as rnd
+
+    try:
+        result = await asyncio.to_thread(rnd.screenshot_webpage, args["url"])
+    except (wa.FetchError, RuntimeError) as exc:
+        return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+
+    b64 = base64.b64encode(result["png_bytes"]).decode("ascii")
+    return {
+        "content": [
+            {"type": "text", "text": f"Screenshot of {result['final_url']} (HTTP {result['status_code']}):"},
+            {"type": "image", "data": b64, "mimeType": "image/png"},
+        ]
+    }
+
+
+@tool(
     "analyze_html",
     "Run the full triage pipeline (same signals as analyze_webpage) on "
     "HTML content you already have - pasted directly - instead of fetching "
@@ -292,6 +332,7 @@ websec_server = create_sdk_mcp_server(
     tools=[
         analyze_webpage,
         analyze_webpage_rendered,
+        screenshot_webpage,
         analyze_html,
         analyze_email,
         analyze_qr_code,

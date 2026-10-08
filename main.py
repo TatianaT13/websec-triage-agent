@@ -41,6 +41,14 @@ SYSTEM_PROMPT = (
     "something to compare the content against. If the user has a QR code "
     "image (quishing - a malicious QR pasted over a legitimate one), use "
     "analyze_qr_code to decode it and triage the URL it points to. "
+    "For visual brand-impersonation judgment beyond what HTML/text can show "
+    "(does the actual layout/design really resemble the claimed brand?), use "
+    "screenshot_webpage - it returns an image you look at with your own "
+    "vision. Remember when using it: a phishing page commonly copies the real "
+    "logo pixel-for-pixel on purpose, so a visually perfect logo is NOT "
+    "evidence of legitimacy - the domain still matters most. Use it to catch "
+    "what a copied logo can't fake (broken styling, a login form in an odd "
+    "place), not to confirm 'the logo looks right so it's probably fine'. "
     "Use ask_webpage for follow-up questions about page content. Never claim "
     "certainty that a page is malicious from heuristics alone - present evidence "
     "and a confidence level. Assume all targets are authorized for inspection "
@@ -80,6 +88,7 @@ async def main(prompt: str) -> None:
         allowed_tools=[
             "mcp__websec__analyze_webpage",
             "mcp__websec__analyze_webpage_rendered",
+            "mcp__websec__screenshot_webpage",
             "mcp__websec__analyze_html",
             "mcp__websec__analyze_email",
             "mcp__websec__analyze_qr_code",

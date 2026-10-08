@@ -32,6 +32,24 @@ def test_renders_a_real_page():
     assert "Example Domain" in result["html"]
 
 
+def test_screenshot_rejects_non_http_scheme():
+    with pytest.raises(wa.FetchError):
+        rnd.screenshot_webpage("ftp://example.com")
+
+
+def test_screenshot_ssrf_guard_blocks_loopback():
+    with pytest.raises(wa.FetchError):
+        rnd.screenshot_webpage("http://127.0.0.1:1/x")
+
+
+def test_screenshot_returns_real_png_bytes():
+    pytest.importorskip("playwright", reason="requires requirements-render.txt")
+    result = rnd.screenshot_webpage("https://example.com")
+    assert result["status_code"] == 200
+    assert result["png_bytes"][:8] == b"\x89PNG\r\n\x1a\n"  # real PNG magic bytes, not a placeholder
+    assert len(result["png_bytes"]) > 1000
+
+
 def test_host_resolver_pin_has_a_real_effect():
     # Proves --host-resolver-rules isn't silently ignored: pinning a real
     # hostname to a deliberately wrong (unreachable, RFC 5737 test-net) IP
