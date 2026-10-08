@@ -56,13 +56,16 @@ def _parse_authentication_results(raw_headers: list[str]) -> dict:
 
 
 def parse_eml_file(path: str) -> dict:
-    """{"html", "subject", "from", "to", "date", "from_domain", "auth"}.
-    from_domain is the sender address's domain (e.g. "secure-paypal-
-    verify.com" from "noreply@secure-paypal-verify.com") - a reasonable
-    default url_hint for build_result_from_html(): an email's claimed
-    sending domain is exactly the kind of thing our brand/domain-mismatch
-    heuristic is designed to catch, repurposed from "page domain" to
-    "sender domain".
+    """{"html", "subject", "from", "to", "date", "from_domain",
+    "display_name", "auth"}. from_domain is the sender address's domain
+    (e.g. "secure-paypal-verify.com" from "noreply@secure-paypal-verify.com")
+    - a reasonable default url_hint for build_result_from_html(): an
+    email's claimed sending domain is exactly the kind of thing our
+    brand/domain-mismatch heuristic is designed to catch, repurposed
+    from "page domain" to "sender domain". display_name is the From
+    header's free-text name part (e.g. "Vinci|Autoroutes" from
+    "Vinci|Autoroutes <donotreply@marionnaud.fr>") - see
+    display_name_domain_mismatch().
 
     auth = {"spf", "dkim", "dmarc": "pass"/"fail"/"softfail"/.../None,
     "dkim_signing_domain": str | None, "header_count": int} - see
@@ -83,7 +86,7 @@ def parse_eml_file(path: str) -> dict:
         html_part = f"<html><body><pre>{body}</pre></body></html>"
 
     from_header = msg.get("from", "") or ""
-    _, from_addr = parseaddr(from_header)
+    display_name, from_addr = parseaddr(from_header)
     from_domain = from_addr.split("@", 1)[1] if "@" in from_addr else ""
 
     auth_headers = msg.get_all("authentication-results") or []
@@ -100,6 +103,7 @@ def parse_eml_file(path: str) -> dict:
         "to": msg.get("to", "") or "",
         "date": msg.get("date", "") or "",
         "from_domain": from_domain,
+        "display_name": display_name,
         "auth": auth,
     }
 
@@ -128,6 +132,71 @@ def apply_email_auth(verdict: dict, auth: dict) -> dict:
         f"email authentication failed: {', '.join(fails)} "
         "(as reported by the receiving mail system in Authentication-Results - "
         "not independently re-verified by this tool, see offline_content.py)"
+    )
+    new_verdict = dict(verdict)
+    if verdict["label"] == "phishing":
+        new_verdict["confidence"] = f"{verdict['confidence']}; {note}"
+    else:
+        new_verdict["label"] = "phishing"
+        new_verdict["confidence"] = note
+    return new_verdict
+
+
+_GENERIC_DISPLAY_NAME_WORDS = {
+    "team", "support", "service", "services", "noreply", "notification", "notifications",
+    "info", "contact", "mail", "customer", "care", "security", "account", "accounts", "alert", "alerts",
+    "update", "updates", "news", "newsletter", "admin", "administrator", "help", "helpdesk", "reply",
+    "sales", "marketing", "billing", "orders", "order", "confirm", "confirmation", "online", "direct",
+}
+
+
+def _display_name_tokens(display_name: str) -> list[str]:
+    """Significant words from a From header's display name - splits on
+    anything non-alphanumeric (handles separators like "Vinci|Autoroutes"),
+    drops short/generic words ("no-reply", "team"...) that would make
+    almost any domain look like a mismatch."""
+    raw = re.split(r"[^\w]+", display_name, flags=re.UNICODE)
+    return [t for t in raw if len(t) >= 3 and t.lower() not in _GENERIC_DISPLAY_NAME_WORDS]
+
+
+def display_name_domain_mismatch(display_name: str, from_domain: str) -> bool:
+    """True if the From header's display name doesn't share a single
+    significant word with the actual sending domain - e.g. "Vinci|
+    Autoroutes <donotreply@marionnaud.fr>": neither "vinci" nor
+    "autoroutes" appears anywhere in marionnaud.fr, a real case this
+    caught that BRAND_LEGITIMATE_DOMAINS (web_analysis.py) missed, since
+    that list only covers the handful of global brands we happened to
+    enumerate. This needs no such list - it generalizes to any
+    impersonated organization, at the cost of being noisier.
+
+    KNOWN FALSE-POSITIVE MODE: a legitimate personal-name sender whose
+    name happens to share no word with their employer's domain (e.g.
+    "John Dupont <j.dupont@some-corp.fr>") will also trigger this. That
+    tradeoff is deliberate and consistent with the rest of this project
+    (see README.md -> Limites connues): lean toward flagging for human
+    review rather than silently missing a real impersonation."""
+    tokens = _display_name_tokens(display_name)
+    if not tokens:
+        return False
+    domain_lower = from_domain.lower()
+    return not any(tok.lower() in domain_lower for tok in tokens)
+
+
+def apply_display_name_mismatch(verdict: dict, display_name: str, from_domain: str) -> dict:
+    """Pushes toward "phishing" when the sender's display name names an
+    organization absent from the actual sending domain - classic
+    display-name spoofing (free email service, or a throwaway domain,
+    dressed up with a trusted-looking name). Unlike apply_email_auth,
+    this is symmetric with itself (no "pass" case to stay neutral on):
+    either it fires or it doesn't. See display_name_domain_mismatch's
+    docstring for the false-positive tradeoff."""
+    if not display_name_domain_mismatch(display_name, from_domain):
+        return verdict
+
+    note = (
+        f"sender display name ({display_name!r}) does not name the actual sending domain "
+        f"({from_domain}) - possible display-name spoofing (heuristic: can also trigger on a "
+        "legitimate personal-name sender, see offline_content.py)"
     )
     new_verdict = dict(verdict)
     if verdict["label"] == "phishing":

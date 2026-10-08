@@ -176,3 +176,63 @@ def test_apply_email_auth_does_not_mutate_the_input():
     original = dict(BENIGN_VERDICT)
     oc.apply_email_auth(BENIGN_VERDICT, {"spf": "fail", "dkim": None, "dmarc": None})
     assert BENIGN_VERDICT == original
+
+
+# --- display-name spoofing -----------------------------------------------
+# Real case that motivated this: an email displayed as "Vinci|Autoroutes"
+# but actually sent from marionnaud.fr (a cosmetics brand, unrelated) -
+# neither BRAND_LEGITIMATE_DOMAINS nor the ML classifier caught it, only
+# the (unrelated) SPF failure did. This check is brand-list-free so it
+# generalizes to any impersonated organization.
+
+
+def test_parse_eml_file_extracts_display_name(tmp_path):
+    msg = EmailMessage()
+    msg["From"] = "Vinci|Autoroutes <donotreply@marionnaud.fr>"
+    msg.set_content("body")
+    parsed = oc.parse_eml_file(_write_eml(tmp_path, msg))
+    assert parsed["display_name"] == "Vinci|Autoroutes"
+    assert parsed["from_domain"] == "marionnaud.fr"
+
+
+def test_display_name_mismatch_catches_the_real_vinci_marionnaud_case():
+    assert oc.display_name_domain_mismatch("Vinci|Autoroutes", "marionnaud.fr") is True
+
+
+def test_display_name_mismatch_false_when_a_word_matches_the_domain():
+    assert oc.display_name_domain_mismatch("Marionnaud", "marionnaud.fr") is False
+    assert oc.display_name_domain_mismatch("LinkedIn Jobs", "linkedin.com") is False
+
+
+def test_display_name_mismatch_ignores_generic_words():
+    # "No-Reply" alone carries no organization claim to check.
+    assert oc.display_name_domain_mismatch("No-Reply", "some-service.com") is False
+
+
+def test_display_name_mismatch_false_for_empty_display_name():
+    assert oc.display_name_domain_mismatch("", "example.com") is False
+
+
+def test_apply_display_name_mismatch_pushes_benign_to_phishing():
+    result = oc.apply_display_name_mismatch(BENIGN_VERDICT, "Vinci|Autoroutes", "marionnaud.fr")
+    assert result["label"] == "phishing"
+    assert "Vinci|Autoroutes" in result["confidence"]
+    assert "marionnaud.fr" in result["confidence"]
+
+
+def test_apply_display_name_mismatch_no_change_when_names_match():
+    result = oc.apply_display_name_mismatch(BENIGN_VERDICT, "Marionnaud", "marionnaud.fr")
+    assert result == BENIGN_VERDICT
+
+
+def test_apply_display_name_mismatch_visible_when_already_phishing():
+    result = oc.apply_display_name_mismatch(PHISHING_VERDICT, "Vinci|Autoroutes", "marionnaud.fr")
+    assert result["label"] == "phishing"
+    assert "both signals agree" in result["confidence"]
+    assert "display-name spoofing" in result["confidence"]
+
+
+def test_apply_display_name_mismatch_does_not_mutate_the_input():
+    original = dict(BENIGN_VERDICT)
+    oc.apply_display_name_mismatch(BENIGN_VERDICT, "Vinci|Autoroutes", "marionnaud.fr")
+    assert BENIGN_VERDICT == original

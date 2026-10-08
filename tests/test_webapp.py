@@ -107,6 +107,20 @@ def test_analyze_email_endpoint_shows_email_card_and_auth_failure(tmp_path):
     assert "email authentication failed" in resp.text
 
 
+def test_analyze_email_catches_display_name_spoofing_even_without_auth_failure(tmp_path):
+    # Real case that motivated this check: displayed as "Vinci|Autoroutes"
+    # but sent from a cosmetics-brand domain, with no Authentication-Results
+    # header at all - SPF/DKIM/DMARC have nothing to say here, so this is
+    # the only signal that catches it.
+    eml_path = tmp_path / "vinci.eml"
+    _write_eml(eml_path, from_addr="Vinci|Autoroutes <donotreply@marionnaud.fr>")
+    with open(eml_path, "rb") as f:
+        resp = client.post("/analyze-email", files={"eml_file": ("vinci.eml", f, "message/rfc822")})
+    assert resp.status_code == 200
+    assert 'class="badge badge-phishing"' in resp.text
+    assert "display-name spoofing" in resp.text
+
+
 def test_analyze_email_escapes_attacker_controlled_subject(tmp_path):
     eml_path = tmp_path / "xss.eml"
     _write_eml(eml_path, subject="<script>alert(1)</script>", from_addr="evil@evil.example")

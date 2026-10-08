@@ -127,6 +127,9 @@ async def analyze_email(
     result["email"] = {k: parsed[k] for k in ("subject", "from", "to", "date")}
     result["email"]["auth"] = parsed["auth"]
     result["verdict"] = oc.apply_email_auth(result["verdict"], parsed["auth"])
+    result["verdict"] = oc.apply_display_name_mismatch(
+        result["verdict"], parsed["display_name"], parsed["from_domain"]
+    )
     return templates.TemplateResponse(request, "result.html", {"result": result})
 
 

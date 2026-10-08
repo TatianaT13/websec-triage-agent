@@ -90,7 +90,14 @@ async def analyze_html(args):
     "reassuring - see offline_content.apply_email_auth's docstring for "
     "why). This is the receiving mail system's self-reported verdict, not "
     "independently re-verified by this tool - say so if asked how solid "
-    "the auth signal is.",
+    "the auth signal is. Also checks for display-name spoofing: if the "
+    "From header's display name (e.g. 'Vinci|Autoroutes') doesn't share a "
+    "single word with the actual sending domain, that also pushes toward "
+    "phishing - this needs no brand list, so it catches impersonation of "
+    "any organization, not just the handful of global brands "
+    "BRAND_LEGITIMATE_DOMAINS enumerates (web_analysis.py). Noisier than "
+    "the auth check though: can false-positive on a legitimate "
+    "personal-name sender - see offline_content.display_name_domain_mismatch.",
     {"file_path": str, "url_hint": str, "check_virustotal": bool},
 )
 async def analyze_email(args):
@@ -108,6 +115,9 @@ async def analyze_email(args):
     result["email"] = {k: parsed[k] for k in ("subject", "from", "to", "date")}
     result["email"]["auth"] = parsed["auth"]
     result["verdict"] = oc.apply_email_auth(result["verdict"], parsed["auth"])
+    result["verdict"] = oc.apply_display_name_mismatch(
+        result["verdict"], parsed["display_name"], parsed["from_domain"]
+    )
     return {"content": [{"type": "text", "text": str(result)}]}
 
 
