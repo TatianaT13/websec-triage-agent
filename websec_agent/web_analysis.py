@@ -35,6 +35,20 @@ BRAND_KEYWORDS = [
     "roblox", "steam", "adobe", "icloud", "hsbc", "barclays", "dhl", "fedex",
     "ups", "usps", "irs", "booking.com", "airbnb", "spotify", "zoom",
     "github", "discord", "whatsapp", "telegram", "ebay", "wells fargo",
+    # French brands/institutions - added after a real case (an email
+    # impersonating "Vinci|Autoroutes" via marionnaud.fr) went undetected
+    # by this list, which was entirely US/international-tech-centric.
+    # Each entry was verified to actually resolve before being added (see
+    # commit message) - a wrong "legitimate" domain here would be worse
+    # than no entry at all. Short/generic-word risk noted inline; skipped
+    # candidates (LCL, Crédit Agricole's many regional domains, bare
+    # "orange"/"free"/"caf") are in BRAND_LEGITIMATE_DOMAINS's docstring
+    # and README -> Limites connues, not silently dropped.
+    "vinci autoroutes", "impots.gouv", "ameli", "la poste", "chronopost",
+    "colissimo", "mondial relay", "sncf", "caf.fr", "urssaf",
+    "pole emploi", "france travail", "edf", "engie", "orange.fr",
+    "free mobile", "sfr", "bouygues telecom", "société générale",
+    "banque postale", "bnp paribas", "crédit agricole",
 ]
 # Brands whose real site isn't simply "<brand-without-spaces>.com", or that
 # have several genuine regional domains - so a plausible-looking but wrong
@@ -60,6 +74,39 @@ BRAND_LEGITIMATE_DOMAINS: dict[str, frozenset[str]] = {
         "ebay.com", "ebay.co.uk", "ebay.de", "ebay.fr", "ebay.it", "ebay.es",
         "ebay.ca", "ebay.com.au", "ebay.in",
     }),
+    # French brands - each domain curl-verified to actually resolve before
+    # being added (see commit message). Known gap, not silently papered
+    # over: Crédit Agricole operates dozens of regional banking domains
+    # (ca-paris.fr, ca-alpesprovence.fr, ...) beyond the single national
+    # one listed here - a legitimate regional CA customer page would still
+    # be flagged as a mismatch. LCL was skipped entirely (3-letter keyword,
+    # too generic/collision-prone to add safely), as was a bare "orange"
+    # (the color/fruit - would false-positive on nearly any page) or
+    # "free"/"caf" alone (common English word; CAF collides with the
+    # "Cost And Freight" Incoterm in invoice/commerce text) - see the
+    # longer keywords used instead ("orange.fr", "free mobile", "caf.fr").
+    "vinci autoroutes": frozenset({"vinci-autoroutes.com"}),
+    "impots.gouv": frozenset({"impots.gouv.fr"}),
+    "ameli": frozenset({"ameli.fr"}),
+    "la poste": frozenset({"laposte.fr"}),
+    "chronopost": frozenset({"chronopost.fr"}),
+    "colissimo": frozenset({"colissimo.fr"}),
+    "mondial relay": frozenset({"mondialrelay.fr"}),
+    "sncf": frozenset({"sncf.com", "sncf-connect.com"}),
+    "caf.fr": frozenset({"caf.fr"}),
+    "urssaf": frozenset({"urssaf.fr"}),
+    "pole emploi": frozenset({"pole-emploi.fr"}),
+    "france travail": frozenset({"francetravail.fr"}),
+    "edf": frozenset({"edf.fr"}),
+    "engie": frozenset({"engie.fr"}),
+    "orange.fr": frozenset({"orange.fr"}),
+    "free mobile": frozenset({"free.fr"}),
+    "sfr": frozenset({"sfr.fr"}),
+    "bouygues telecom": frozenset({"bouyguestelecom.fr"}),
+    "société générale": frozenset({"societegenerale.fr"}),
+    "banque postale": frozenset({"labanquepostale.fr"}),
+    "bnp paribas": frozenset({"bnpparibas.fr", "mabanque.bnpparibas"}),
+    "crédit agricole": frozenset({"credit-agricole.fr"}),
 }
 
 

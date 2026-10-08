@@ -84,6 +84,39 @@ def test_legitimate_regional_domain_variant_is_not_flagged():
     assert not any("brand" in r for r in verdict["reasons"])
 
 
+def test_french_brand_lookalike_domain_is_flagged():
+    # Real case that motivated adding French brands to BRAND_KEYWORDS: an
+    # email impersonating "Vinci|Autoroutes" went undetected because the
+    # list was entirely US/international-tech-centric (see offline_content
+    # tests for the display-name-based fix to the same underlying case).
+    html = "<html><head><title>Vinci Autoroutes - Espace client</title></head><body>hi</body></html>"
+    url = "https://vinci-autoroutes-secure.net/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert any("vinci autoroutes" in r for r in verdict["reasons"])
+
+
+def test_french_brand_real_domain_is_not_flagged():
+    html = "<html><head><title>Vinci Autoroutes - Espace client</title></head><body>hi</body></html>"
+    url = "https://vinci-autoroutes.com/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert not any("brand" in r for r in verdict["reasons"])
+
+
+def test_accented_french_brand_is_matched_case_and_accent_consistently():
+    # Confirms re.escape()/lower() handle accented keywords correctly -
+    # not an assumption, this is a real risk with substring matching.
+    html = "<html><head><title>Société Générale - Connexion</title></head><body>hi</body></html>"
+    url = "https://societe-generale-secure.com/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert any("société générale" in r for r in verdict["reasons"])
+
+
 def test_credential_phish_scores_high():
     url = "https://totally-legit-mail.example/"
     structure = wa.analyze_structure(CREDENTIAL_PHISH_HTML, url)
