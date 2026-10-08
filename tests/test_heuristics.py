@@ -117,6 +117,56 @@ def test_accented_french_brand_is_matched_case_and_accent_consistently():
     assert any("société générale" in r for r in verdict["reasons"])
 
 
+def test_credit_agricole_regional_lookalike_is_flagged():
+    html = "<html><head><title>Crédit Agricole Alpes Provence</title></head><body>hi</body></html>"
+    url = "https://ca-alpesprovence-secure.net/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert any("crédit agricole" in r for r in verdict["reasons"])
+
+
+def test_credit_agricole_real_regional_domain_is_not_flagged():
+    # ca-alpesprovence.fr is a genuine regional CA bank, not a lookalike -
+    # the whole point of expanding past the single national domain.
+    html = "<html><head><title>Crédit Agricole Alpes Provence</title></head><body>hi</body></html>"
+    url = "https://ca-alpesprovence.fr/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert not any("brand" in r for r in verdict["reasons"])
+
+
+def test_lcl_real_domain_is_not_flagged():
+    html = "<html><head><title>LCL.fr - Mon espace client</title></head><body>hi</body></html>"
+    url = "https://lcl.fr/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert not any("brand" in r for r in verdict["reasons"])
+
+
+def test_lcl_lookalike_is_flagged_when_domain_string_is_spelled_out():
+    html = "<html><head><title>LCL.fr - Mon espace client</title></head><body>hi</body></html>"
+    url = "https://lcl-fr-secure.com/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert any("lcl.fr" in r for r in verdict["reasons"])
+
+
+def test_lcl_bare_mention_is_a_known_accepted_gap():
+    # Documents the real tradeoff from choosing "lcl.fr" over bare "lcl"
+    # (collision risk with the ".lcl" local-dev fake TLD) - a title that
+    # only says "LCL", not "LCL.fr", is NOT caught. Intentional, not a bug.
+    html = "<html><head><title>LCL - Mon espace client</title></head><body>hi</body></html>"
+    url = "https://lcl-fr-secure.com/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    assert not any("brand" in r for r in verdict["reasons"])
+
+
 def test_credential_phish_scores_high():
     url = "https://totally-legit-mail.example/"
     structure = wa.analyze_structure(CREDENTIAL_PHISH_HTML, url)

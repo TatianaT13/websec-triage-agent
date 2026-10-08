@@ -49,6 +49,15 @@ BRAND_KEYWORDS = [
     "pole emploi", "france travail", "edf", "engie", "orange.fr",
     "free mobile", "sfr", "bouygues telecom", "société générale",
     "banque postale", "bnp paribas", "crédit agricole",
+    # "lcl" alone was skipped at first (3-letter keyword, collision risk -
+    # notably ".lcl" is a common fake TLD for local dev, e.g. "myapp.lcl")
+    # - "lcl.fr" is specific enough (the literal domain string) to add
+    # safely without that risk. Real cost of that choice, confirmed by
+    # testing: a page titled just "LCL - Mon espace client" (no literal
+    # "lcl.fr" substring) is NOT caught by this keyword at all - only
+    # titles/text that spell out "lcl.fr" are. Accepted tradeoff (safety
+    # over recall for this one brand), not a silent gap - see README.
+    "lcl.fr",
 ]
 # Brands whose real site isn't simply "<brand-without-spaces>.com", or that
 # have several genuine regional domains - so a plausible-looking but wrong
@@ -75,16 +84,12 @@ BRAND_LEGITIMATE_DOMAINS: dict[str, frozenset[str]] = {
         "ebay.ca", "ebay.com.au", "ebay.in",
     }),
     # French brands - each domain curl-verified to actually resolve before
-    # being added (see commit message). Known gap, not silently papered
-    # over: Crédit Agricole operates dozens of regional banking domains
-    # (ca-paris.fr, ca-alpesprovence.fr, ...) beyond the single national
-    # one listed here - a legitimate regional CA customer page would still
-    # be flagged as a mismatch. LCL was skipped entirely (3-letter keyword,
-    # too generic/collision-prone to add safely), as was a bare "orange"
-    # (the color/fruit - would false-positive on nearly any page) or
-    # "free"/"caf" alone (common English word; CAF collides with the
-    # "Cost And Freight" Incoterm in invoice/commerce text) - see the
-    # longer keywords used instead ("orange.fr", "free mobile", "caf.fr").
+    # being added (see commit message). A bare "orange" (the color/fruit -
+    # would false-positive on nearly any page) or "free"/"caf" alone
+    # (common English word; CAF collides with the "Cost And Freight"
+    # Incoterm in invoice/commerce text) were skipped in favor of the
+    # longer, safer keywords used instead ("orange.fr", "free mobile",
+    # "caf.fr") - same reasoning applied to "lcl.fr" below.
     "vinci autoroutes": frozenset({"vinci-autoroutes.com"}),
     "impots.gouv": frozenset({"impots.gouv.fr"}),
     "ameli": frozenset({"ameli.fr"}),
@@ -106,7 +111,25 @@ BRAND_LEGITIMATE_DOMAINS: dict[str, frozenset[str]] = {
     "société générale": frozenset({"societegenerale.fr"}),
     "banque postale": frozenset({"labanquepostale.fr"}),
     "bnp paribas": frozenset({"bnpparibas.fr", "mabanque.bnpparibas"}),
-    "crédit agricole": frozenset({"credit-agricole.fr"}),
+    "lcl.fr": frozenset({"lcl.fr"}),
+    # Crédit Agricole is a federation of ~39 independent regional banks,
+    # each with its own domain (not subdomains of credit-agricole.fr) -
+    # every domain below was curl-verified to actually resolve. Still not
+    # exhaustive: a handful of regions (e.g. Savoie, Anjou-Maine) use
+    # domain names that didn't match the "ca-<region>.fr" pattern tried
+    # here and weren't tracked down - a real customer of one of those
+    # remaining regional banks could still be flagged as a mismatch. See
+    # README -> Limites connues.
+    "crédit agricole": frozenset({
+        "credit-agricole.fr", "credit-agricole.com",
+        "ca-paris.fr", "ca-alpesprovence.fr", "ca-cmds.fr", "ca-languedoc.fr",
+        "ca-normandie.fr", "ca-atlantique-vendee.fr", "ca-centrefrance.fr",
+        "ca-nmp.fr", "ca-sudrhonealpes.fr", "ca-bretagne.fr", "ca-illeetvilaine.fr",
+        "ca-tourainepoitou.fr", "ca-charente-perigord.fr", "ca-finistere.fr",
+        "ca-franchecomte.fr", "ca-lorraine.fr", "ca-nord-est.fr", "ca-norddefrance.fr",
+        "ca-pca.fr", "ca-sudmed.fr", "ca-toulousain.fr", "ca-valdefrance.fr",
+        "ca-corse.fr", "ca-guadeloupe.fr", "ca-martinique.fr", "ca-reunion.fr",
+    }),
 }
 
 
