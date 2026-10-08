@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timezone
 
 
-def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool) -> dict:
+def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool, check_urlscan: bool = False) -> dict:
     """Shared by build_result() (live fetch) and build_result_from_html()
     (content you already have) - everything past "we have the HTML and
     the URL it's associated with" is identical either way."""
@@ -43,6 +43,12 @@ def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool) 
         except RuntimeError:
             pass  # threat-intel extras not installed, or no VT_API_KEY - degrade gracefully
 
+    urlscan_result = None
+    if check_urlscan:
+        from . import urlscan_lookup as us
+
+        urlscan_result = us.find_existing_scans(urlsplit(fetched["final_url"]).hostname or "")
+
     return {
         "requested_url": requested_url,
         "final_url": fetched["final_url"],
@@ -54,11 +60,14 @@ def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool) 
         "ml_classifier": ml,
         "domain_age": domain_age_info,
         "virustotal": vt_result,
+        # Corroborating context only - never an input to combine_verdicts()
+        # below, see urlscan_lookup.py's module docstring for why.
+        "urlscan": urlscan_result,
         "verdict": vd.combine_verdicts(heuristic, ml, domain_age_info, vt_result),
     }
 
 
-def build_result(url: str, render: bool = False, check_virustotal: bool = False) -> dict:
+def build_result(url: str, render: bool = False, check_virustotal: bool = False, check_urlscan: bool = False) -> dict:
     """Fetch + run the full pipeline (heuristic score, and the trained ML
     classifier when available), returning one result dict with a single
     combined verdict instead of two opinions the caller has to reconcile.
@@ -80,7 +89,13 @@ def build_result(url: str, render: bool = False, check_virustotal: bool = False)
     check_virustotal=True also queries VirusTotal (requirements-threatintel.txt
     + a free VT_API_KEY) - opt-in because it costs real quota (4 req/min,
     500/day on the free tier) and a fresh submission can take up to
-    max_wait_s to return a verdict, unlike every other signal here."""
+    max_wait_s to return a verdict, unlike every other signal here.
+
+    check_urlscan=True looks up existing public urlscan.io scans of this
+    domain (free, no API key, no quota) - opt-in anyway, purely to keep
+    the default path from making an extra external call. Corroborating
+    context only (screenshot, hosting info) - see urlscan_lookup.py for
+    why it's never a verdict input the way VirusTotal is."""
     from . import web_analysis as wa
 
     auto_rendered = None
@@ -101,12 +116,14 @@ def build_result(url: str, render: bool = False, check_virustotal: bool = False)
             except (RuntimeError, wa.FetchError):
                 pass  # render extras missing, or rendering itself failed - keep the plain fetch
 
-    result = _analyze_fetched(url, fetched, check_virustotal)
+    result = _analyze_fetched(url, fetched, check_virustotal, check_urlscan)
     result["auto_rendered"] = auto_rendered
     return result
 
 
-def build_result_from_html(html: str, url_hint: str, check_virustotal: bool = False) -> dict:
+def build_result_from_html(
+    html: str, url_hint: str, check_virustotal: bool = False, check_urlscan: bool = False
+) -> dict:
     """Like build_result(), but for content you already have (pasted
     HTML, or extracted from an .eml via websec_agent.offline_content)
     instead of a live URL to fetch - the common real case where the
@@ -123,7 +140,7 @@ def build_result_from_html(html: str, url_hint: str, check_virustotal: bool = Fa
     content looks JS-rendered-empty, so result["auto_rendered"] is always
     None here - unlike build_result()."""
     fetched = {"final_url": url_hint, "status_code": None, "html": html}
-    result = _analyze_fetched(url_hint, fetched, check_virustotal)
+    result = _analyze_fetched(url_hint, fetched, check_virustotal, check_urlscan)
     result["auto_rendered"] = None
     return result
 

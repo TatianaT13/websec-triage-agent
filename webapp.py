@@ -77,9 +77,10 @@ async def analyze(
     url: str = Form(...),
     render: bool = Form(False),
     check_virustotal: bool = Form(False),
+    check_urlscan: bool = Form(False),
 ):
     try:
-        result = await asyncio.to_thread(rpt.build_result, url, render, check_virustotal)
+        result = await asyncio.to_thread(rpt.build_result, url, render, check_virustotal, check_urlscan)
     except wa.FetchError as exc:
         return templates.TemplateResponse(request, "result.html", {"error": str(exc)})
     return templates.TemplateResponse(request, "result.html", {"result": result})
@@ -91,6 +92,7 @@ async def analyze_html(
     html: str = Form(...),
     url_hint: str = Form(...),
     check_virustotal: bool = Form(False),
+    check_urlscan: bool = Form(False),
 ):
     if len(html) > MAX_PASTED_HTML_CHARS:
         return templates.TemplateResponse(
@@ -98,7 +100,7 @@ async def analyze_html(
             "result.html",
             {"error": f"HTML collé trop volumineux (max {MAX_PASTED_HTML_CHARS // 1_000_000} Mo)"},
         )
-    result = await asyncio.to_thread(rpt.build_result_from_html, html, url_hint, check_virustotal)
+    result = await asyncio.to_thread(rpt.build_result_from_html, html, url_hint, check_virustotal, check_urlscan)
     return templates.TemplateResponse(request, "result.html", {"result": result})
 
 

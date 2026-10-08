@@ -88,6 +88,24 @@
   </div>
   {% endif %}
 
+  {% if result.urlscan is not none %}
+  <div class="card">
+    <h2>urlscan.io</h2>
+    {% if result.urlscan %}
+    <ul>
+      {% for scan in result.urlscan %}
+      <li>
+        <a href="{{ scan.scan_url }}" target="_blank" rel="noopener">{{ scan.page_title or scan.page_url }}</a>
+        — {{ scan.country or "?" }}, {{ scan.asn_name or "hébergeur inconnu" }}
+        {% if scan.screenshot %}(<a href="{{ scan.screenshot }}" target="_blank" rel="noopener">capture</a>){% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">Aucun scan public existant pour ce domaine.</p>{% endif %}
+    <p class="muted">Contexte de corroboration uniquement (captures, hébergement) — pas un verdict malveillant/bénin comme VirusTotal : ce champ est verrouillé derrière un abonnement payant chez urlscan.io, même en lecture.</p>
+  </div>
+  {% endif %}
+
   <div class="card">
     <h2>Structure</h2>
     <table>

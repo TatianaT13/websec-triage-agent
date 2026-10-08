@@ -24,13 +24,22 @@ from . import web_analysis as wa
     "check_virustotal=true to also query VirusTotal (70+ security vendors) "
     "- slower (up to ~30s for a URL VT hasn't seen before) and costs quota "
     "(requires VT_API_KEY and requirements-threatintel.txt), so it's off "
-    "by default.",
-    {"url": str, "check_virustotal": bool},
+    "by default. Set check_urlscan=true to also look up existing public "
+    "urlscan.io scans of this domain (free, no API key) - corroborating "
+    "context only (screenshot, hosting ASN/country, TLS cert age), NOT a "
+    "second malicious/benign vote like VirusTotal: urlscan.io's own "
+    "malicious-verdict field is gated behind a paid plan even to query, "
+    "so this never claims to replicate it.",
+    {"url": str, "check_virustotal": bool, "check_urlscan": bool},
 )
 async def analyze_webpage(args):
     try:
         result = await asyncio.to_thread(
-            rpt.build_result, args["url"], False, args.get("check_virustotal", False)
+            rpt.build_result,
+            args["url"],
+            False,
+            args.get("check_virustotal", False),
+            args.get("check_urlscan", False),
         )
     except wa.FetchError as exc:
         return {"content": [{"type": "text", "text": f"Fetch blocked or failed: {exc}"}], "is_error": True}
@@ -67,12 +76,18 @@ async def analyze_webpage_rendered(args):
     "you have its saved source. url_hint is the URL this content is "
     "claimed or known to be associated with (even if it's dead now) - "
     "required, since the brand/domain-mismatch checks need a domain to "
-    "compare against.",
-    {"html": str, "url_hint": str, "check_virustotal": bool},
+    "compare against. check_urlscan=true adds existing-scan context from "
+    "urlscan.io for url_hint's domain - see analyze_webpage's description "
+    "for what that does and doesn't mean.",
+    {"html": str, "url_hint": str, "check_virustotal": bool, "check_urlscan": bool},
 )
 async def analyze_html(args):
     result = await asyncio.to_thread(
-        rpt.build_result_from_html, args["html"], args["url_hint"], args.get("check_virustotal", False)
+        rpt.build_result_from_html,
+        args["html"],
+        args["url_hint"],
+        args.get("check_virustotal", False),
+        args.get("check_urlscan", False),
     )
     return {"content": [{"type": "text", "text": str(result)}]}
 

@@ -52,6 +52,43 @@ def test_analyze_html_endpoint_works():
     assert 'class="badge badge-phishing"' in resp.text
 
 
+def test_analyze_shows_urlscan_context_without_affecting_verdict(monkeypatch):
+    import websec_agent.urlscan_lookup as us_module
+
+    monkeypatch.setattr(
+        us_module,
+        "find_existing_scans",
+        lambda domain, limit=3: [
+            {
+                "scan_url": "https://urlscan.io/result/abc-123",
+                "screenshot": "https://urlscan.io/screenshots/abc-123.png",
+                "scanned_at": "2026-10-08T00:00:00Z",
+                "page_title": "Example Domain",
+                "page_url": "https://example.com/",
+                "status_code": "200",
+                "country": "US",
+                "asn_name": "EXAMPLE-ASN",
+                "domain_age_days": 9000,
+                "tls_issuer": "Test CA",
+            }
+        ],
+    )
+    resp = client.post("/analyze", data={"url": "https://example.com", "check_urlscan": "true"})
+    assert resp.status_code == 200
+    assert "urlscan.io" in resp.text
+    assert "Example Domain" in resp.text
+    assert "Contexte de corroboration" in resp.text
+    # Benign page, urlscan context present - must not have flipped the
+    # verdict, it's informational only (same principle as BIMI above).
+    assert 'class="badge badge-benign"' in resp.text or 'class="badge badge-uncertain"' in resp.text
+
+
+def test_analyze_without_check_urlscan_omits_the_card():
+    resp = client.post("/analyze", data={"url": "https://example.com"})
+    assert resp.status_code == 200
+    assert "<h2>urlscan.io</h2>" not in resp.text
+
+
 def test_analyze_html_rejects_oversized_paste():
     big_html = "<html><body>" + "a" * (webapp.MAX_PASTED_HTML_CHARS + 1) + "</body></html>"
     resp = client.post("/analyze-html", data={"html": big_html, "url_hint": "https://example.com/"})

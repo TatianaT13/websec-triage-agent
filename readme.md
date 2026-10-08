@@ -60,6 +60,7 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 - **`export_report`** : génère un rapport Markdown + un bundle IOC JSON sur disque, directement depuis les heuristiques (pas d'appel LLM supplémentaire, déterministe) — utilisable aussi en CLI pure via `python scripts/export_report.py <url> [out_dir] [--render]`.
 - **`ml_classify_webpage`** (optionnel, nécessite les dépendances MLOps) : appel autonome au classifieur entraîné seul, sans le reste du pipeline — utile pour un score ML rapide. `analyze_webpage` l'inclut déjà dans son verdict combiné.
 - **`check_virustotal`** / `analyze_webpage(check_virustotal=true)` (optionnel, nécessite `requirements-threatintel.txt` + une clé `VT_API_KEY` gratuite) : interroge 70+ moteurs de sécurité réels. Un verdict malveillant **l'emporte** sur nos propres signaux (vraie donnée vendeur, pas juste notre petit modèle) ; un rapport propre ne fait que départager un cas "incertain". Coûte du quota (4 requêtes/min, 500/jour en gratuit) et peut prendre jusqu'à ~30s pour une URL inconnue de VT — désactivé par défaut.
+- **`check_urlscan`** / `analyze_webpage(check_urlscan=true)` (optionnel, gratuit, aucune clé API) : recherche les scans publics déjà existants sur urlscan.io pour ce domaine — capture d'écran, hébergeur (ASN/pays), âge TLS. **Contexte de corroboration uniquement, jamais un verdict malveillant/bénin** comme VirusTotal : contrairement à ce qu'on pourrait croire, filtrer par verdict malveillant sur urlscan.io (`verdicts.overall.malicious`) est **verrouillé derrière un abonnement payant même en lecture seule** (confirmé empiriquement : une requête anonyme sur ce champ renvoie `403 Your current plan does not allow...`). Donc `websec_agent/urlscan_lookup.py` ne prétend pas calculer un verdict à partir de ces données — il affiche juste "voici ce qui a déjà été scanné publiquement", sans influencer `combine_verdicts()`.
 - **`ask_webpage`** (optionnel, nécessite les dépendances ML) : QA en langage naturel sur le contenu d'une page via MarkupLM.
 - **`analyze_html`** : même pipeline que `analyze_webpage`, mais sur du HTML qu'on fournit directement (collé), sans fetch réseau — utile quand la page est déjà tombée entre le signalement et l'analyse. Demande un `url_hint` (l'URL supposée, même morte) pour donner un point de comparaison aux heuristiques de marque/domaine.
 - **`analyze_email`** : même chose à partir d'un fichier `.eml` sur disque — extrait le corps HTML (repli sur le texte brut sinon), et utilise par défaut **le domaine de l'expéditeur** comme `url_hint`, ce qui détourne intelligemment l'heuristique marque/domaine pour repérer un expéditeur usurpé ("PayPal" envoyé depuis un domaine qui n'est pas paypal.com). Parse aussi **SPF/DKIM/DMARC** depuis l'en-tête `Authentication-Results` : un **échec** fait basculer le verdict vers phishing (asymétrique — un succès n'est volontairement **jamais** traité comme rassurant, voir *Limites connues*). Cas réel testé : un expéditeur usurpé à `service@paypal.com` passait inaperçu de tous les autres signaux (le domaine "paypal.com" matchait la marque, aucune incohérence structurelle) — seul SPF/DMARC a révélé l'usurpation.
@@ -203,6 +204,7 @@ Piste additive, séparée du classifieur principal : un embedding **gelé** (`we
 │   ├── offline_content.py      # extraction HTML + SPF/DKIM/DMARC depuis un .eml
 │   ├── dkim_verify.py          # vérification DKIM indépendante (crypto réelle), optionnel
 │   ├── bimi_lookup.py          # lookup BIMI (informatif uniquement), optionnel
+│   ├── urlscan_lookup.py       # scans urlscan.io existants (contexte, gratuit), optionnel
 │   ├── qr_decode.py            # décodage de QR code (OpenCV), optionnel
 │   ├── markuplm_embeddings.py  # embedding MarkupLM gelé (v2 MLOps, optionnel), voir plus bas
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
@@ -238,6 +240,7 @@ Piste additive, séparée du classifieur principal : un embedding **gelé** (`we
 │   ├── test_offline_content.py # tests de l'extraction .eml + SPF/DKIM/DMARC
 │   ├── test_dkim_verify.py     # tests de la vérification DKIM (vrai aller-retour signature)
 │   ├── test_bimi_lookup.py     # tests du lookup BIMI (vrais formats d'enregistrement DNS)
+│   ├── test_urlscan_lookup.py  # tests du lookup urlscan.io (forme de réponse réelle)
 │   ├── test_qr_decode.py       # tests du décodage QR (vrai QR généré + vérifié)
 │   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
 │   ├── test_build_dataset.py   # tests du filtre de vérification des candidats bénins + deadline réseau
