@@ -64,6 +64,7 @@ Cet outil est destiné à un usage défensif et autorisé uniquement : tes propr
 - **`analyze_html`** : même pipeline que `analyze_webpage`, mais sur du HTML qu'on fournit directement (collé), sans fetch réseau — utile quand la page est déjà tombée entre le signalement et l'analyse. Demande un `url_hint` (l'URL supposée, même morte) pour donner un point de comparaison aux heuristiques de marque/domaine.
 - **`analyze_email`** : même chose à partir d'un fichier `.eml` sur disque — extrait le corps HTML (repli sur le texte brut sinon), et utilise par défaut **le domaine de l'expéditeur** comme `url_hint`, ce qui détourne intelligemment l'heuristique marque/domaine pour repérer un expéditeur usurpé ("PayPal" envoyé depuis un domaine qui n'est pas paypal.com). Parse aussi **SPF/DKIM/DMARC** depuis l'en-tête `Authentication-Results` : un **échec** fait basculer le verdict vers phishing (asymétrique — un succès n'est volontairement **jamais** traité comme rassurant, voir *Limites connues*). Cas réel testé : un expéditeur usurpé à `service@paypal.com` passait inaperçu de tous les autres signaux (le domaine "paypal.com" matchait la marque, aucune incohérence structurelle) — seul SPF/DMARC a révélé l'usurpation.
 - **Détection de l'usurpation du nom affiché (`display_name_domain_mismatch`)** : compare le nom affiché de l'expéditeur (ex. "Vinci|Autoroutes") au domaine d'envoi réel — sans liste de marques à maintenir, donc ça généralise à n'importe quelle organisation usurpée, pas seulement celles listées dans `BRAND_LEGITIMATE_DOMAINS`. **Cas réel qui a motivé cette fonctionnalité** : un email affiché "Vinci|Autoroutes" mais envoyé depuis `marionnaud.fr` (une marque de parfumerie, sans rapport) — ni l'heuristique de marque (liste américaine/internationale, pas de marques françaises), ni le classifieur ML (structure propre, aucun formulaire) ne l'ont détecté ; seul un échec SPF, sans lien avec ce problème précis, a sauvé le verdict final. Ce nouveau signal l'attrape directement, même sans échec SPF. **`BRAND_KEYWORDS`/`BRAND_LEGITIMATE_DOMAINS` élargis en parallèle** avec une vingtaine de marques et institutions françaises (Vinci Autoroutes, impots.gouv.fr, Ameli, La Poste, Société Générale, BNP Paribas...), chaque domaine vérifié réellement avant ajout — désormais ce même cas Vinci/Marionnaud est détecté *trois fois indépendamment* (SPF, nom affiché, **et** l'heuristique marque/domaine elle-même, qui auparavant ne connaissait aucune marque française).
+- **Vérification DKIM indépendante** (optionnel, nécessite `requirements-email-verify.txt`) : contrairement à SPF/DKIM/DMARC ci-dessus (auto-déclarés, lus depuis l'en-tête `Authentication-Results`), `websec_agent/dkim_verify.py` **recalcule réellement** la signature cryptographique DKIM contre la clé publique DNS du domaine signataire — une signature invalide est une preuve bien plus solide qu'un échec auto-déclaré. **Pourquoi DKIM et pas SPF** : DKIM signe le contenu du message lui-même, donc le vérifier ne demande que le message + une requête DNS, peu importe comment le `.eml` nous est parvenu. SPF authentifie l'IP du serveur SMTP connecté, information qui n'est préservée que dans la chaîne d'en-têtes `Received:` — chaîne aussi falsifiable que `Authentication-Results` lui-même. Réimplémenter une "vérification SPF" à partir d'un fichier `.eml` statique ne fermerait donc pas vraiment cet écart de confiance, juste le déplacerait d'un cran tout en ayant l'air plus rigoureux — ce projet ne prétend pas le faire. Vérifié par un vrai aller-retour signature/vérification/falsification (clé RSA jetable, DNS simulé) avant d'être branché, puis par un test de bout en bout contre la vraie clé DNS publique de gmail.com avec une signature forgée (correctement détectée comme invalide).
 - **`analyze_qr_code`** (optionnel, nécessite `requirements-qr.txt`) : décode une image de QR code (OpenCV) et lance le pipeline complet sur l'URL qu'il contient — pour le *quishing* (QR malveillant collé sur un parcmètre, une facture, une affiche...). Si le QR encode autre chose qu'une URL (texte, vCard, Wi-Fi...), renvoie le contenu brut au lieu de forcer une analyse web.
 
 ## Installation
@@ -86,6 +87,8 @@ pip install -r requirements-threatintel.txt
 export VT_API_KEY="..."  # clé gratuite sur virustotal.com -> icône profil -> API Key
 # optionnel, pour analyze_qr_code :
 pip install -r requirements-qr.txt
+# optionnel, pour la vérification DKIM indépendante dans analyze_email :
+pip install -r requirements-email-verify.txt
 ```
 
 Authentification : connecte-toi avec `node_modules/.bin/claude` (login intégré), ou définis la variable d'environnement `ANTHROPIC_API_KEY` (voir `.env.example`).
@@ -197,6 +200,7 @@ Piste additive, séparée du classifieur principal : un embedding **gelé** (`we
 │   ├── domain_age.py            # âge du domaine via RDAP
 │   ├── virustotal.py            # vérification VirusTotal (70+ moteurs), optionnel
 │   ├── offline_content.py      # extraction HTML + SPF/DKIM/DMARC depuis un .eml
+│   ├── dkim_verify.py          # vérification DKIM indépendante (crypto réelle), optionnel
 │   ├── qr_decode.py            # décodage de QR code (OpenCV), optionnel
 │   ├── markuplm_embeddings.py  # embedding MarkupLM gelé (v2 MLOps, optionnel), voir plus bas
 │   ├── report.py               # génération du rapport Markdown + bundle IOC JSON
@@ -230,6 +234,7 @@ Piste additive, séparée du classifieur principal : un embedding **gelé** (`we
 │   ├── test_virustotal.py      # tests du client VirusTotal (mocké, + vérifié en live)
 │   ├── test_webapp.py          # tests de l'interface web (4 onglets, incl. protection XSS)
 │   ├── test_offline_content.py # tests de l'extraction .eml + SPF/DKIM/DMARC
+│   ├── test_dkim_verify.py     # tests de la vérification DKIM (vrai aller-retour signature)
 │   ├── test_qr_decode.py       # tests du décodage QR (vrai QR généré + vérifié)
 │   ├── test_build_result_from_html.py  # tests du pipeline sans fetch réseau
 │   ├── test_build_dataset.py   # tests du filtre de vérification des candidats bénins + deadline réseau
@@ -249,6 +254,7 @@ Piste additive, séparée du classifieur principal : un embedding **gelé** (`we
 ├── requirements-threatintel.txt
 ├── requirements-qr.txt
 ├── requirements-web.txt
+├── requirements-email-verify.txt
 └── .env.example
 ```
 

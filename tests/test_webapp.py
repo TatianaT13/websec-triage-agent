@@ -121,6 +121,27 @@ def test_analyze_email_catches_display_name_spoofing_even_without_auth_failure(t
     assert "display-name spoofing" in resp.text
 
 
+def test_analyze_email_shows_independent_dkim_verification_failure(tmp_path, monkeypatch):
+    # Mocked at the dkim_verify module level (not real DNS/crypto - that's
+    # covered by tests/test_dkim_verify.py) so this test is deterministic
+    # and doesn't need requirements-email-verify.txt installed.
+    import websec_agent.dkim_verify as dv_module
+
+    monkeypatch.setattr(
+        dv_module,
+        "verify_dkim_signature",
+        lambda raw: {"verified": False, "signing_domain": "evil.example", "detail": "mocked"},
+    )
+    eml_path = tmp_path / "forged.eml"
+    _write_eml(eml_path, from_addr="security@gmail.com")
+    with open(eml_path, "rb") as f:
+        resp = client.post("/analyze-email", files={"eml_file": ("forged.eml", f, "message/rfc822")})
+    assert resp.status_code == 200
+    assert 'class="badge badge-phishing"' in resp.text
+    assert "vérifié par nous" in resp.text
+    assert "evil.example" in resp.text
+
+
 def test_analyze_email_escapes_attacker_controlled_subject(tmp_path):
     eml_path = tmp_path / "xss.eml"
     _write_eml(eml_path, subject="<script>alert(1)</script>", from_addr="evil@evil.example")

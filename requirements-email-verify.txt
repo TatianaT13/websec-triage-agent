@@ -1,0 +1,3 @@
+-r requirements.txt
+dkimpy>=1.1.5
+dnspython>=2.6

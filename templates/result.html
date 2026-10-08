@@ -32,10 +32,18 @@
       <tr><td>À</td><td><code>{{ result.email.to or "(aucun)" }}</code></td></tr>
       <tr><td>Date</td><td class="muted">{{ result.email.date or "(aucune)" }}</td></tr>
       <tr><td>SPF</td><td>{{ result.email.auth.spf or "(absent)" }}</td></tr>
-      <tr><td>DKIM</td><td>{{ result.email.auth.dkim or "(absent)" }}</td></tr>
+      <tr><td>DKIM (auto-déclaré)</td><td>{{ result.email.auth.dkim or "(absent)" }}</td></tr>
       <tr><td>DMARC</td><td>{{ result.email.auth.dmarc or "(absent)" }}</td></tr>
+      {% if result.email.dkim_verification %}
+      {% set dv = result.email.dkim_verification %}
+      <tr><td>DKIM (vérifié par nous)</td><td>
+        {% if dv.verified == true %}✅ signature cryptographique valide ({{ dv.signing_domain }})
+        {% elif dv.verified == false %}❌ signature invalide ou falsifiée ({{ dv.signing_domain or "domaine inconnu" }})
+        {% else %}— aucune signature DKIM présente{% endif %}
+      </td></tr>
+      {% endif %}
     </table>
-    <p class="muted">SPF/DKIM/DMARC sont auto-déclarés par le serveur qui a ajouté l'en-tête Authentication-Results, pas vérifiés par cet outil — voir README.</p>
+    <p class="muted">SPF/DMARC et la ligne "DKIM (auto-déclaré)" sont auto-déclarés par le serveur qui a ajouté l'en-tête Authentication-Results, pas vérifiés par cet outil. La ligne "DKIM (vérifié par nous)" (si présente) recalcule réellement la signature cryptographique contre la clé DNS publique du domaine signataire — voir README.</p>
   </div>
   {% endif %}
 

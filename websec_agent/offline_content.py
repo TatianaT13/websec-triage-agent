@@ -9,7 +9,10 @@ that makes this genuinely different from "the page's own HTML looks
 suspicious": this is a claim made by whichever mail system added the
 header, not something this tool independently re-verifies.
 
-Uses only Python's standard library email module - no new dependency.
+Parsing itself uses only Python's standard library email module - no
+new dependency. apply_dkim_verification() is the one exception: it
+consumes the output of websec_agent.dkim_verify, which does an actual
+independent cryptographic re-check (optional extras, see that module).
 """
 from __future__ import annotations
 
@@ -197,6 +200,41 @@ def apply_display_name_mismatch(verdict: dict, display_name: str, from_domain: s
         f"sender display name ({display_name!r}) does not name the actual sending domain "
         f"({from_domain}) - possible display-name spoofing (heuristic: can also trigger on a "
         "legitimate personal-name sender, see offline_content.py)"
+    )
+    new_verdict = dict(verdict)
+    if verdict["label"] == "phishing":
+        new_verdict["confidence"] = f"{verdict['confidence']}; {note}"
+    else:
+        new_verdict["label"] = "phishing"
+        new_verdict["confidence"] = note
+    return new_verdict
+
+
+def apply_dkim_verification(verdict: dict, dkim_result: dict) -> dict:
+    """Unlike apply_email_auth's DKIM check (self-reported - a claim
+    from whichever mail system added Authentication-Results),
+    dkim_result comes from websec_agent.dkim_verify actually
+    recomputing the cryptographic signature against the signing
+    domain's public DNS key - genuinely independent evidence, not a
+    claim we're choosing to trust.
+
+    verified=False (a signature is present but doesn't validate - either
+    tampered in transit or forged outright) pushes hard toward phishing.
+    verified=None (no DKIM-Signature header at all) is not evidence
+    either way - plenty of legitimate mail isn't DKIM-signed, so absence
+    isn't suspicious the way an invalid signature is. verified=True does
+    NOT push toward benign - same reasoning as apply_email_auth: a valid
+    signature only proves the signing domain really authorized the
+    message, not that the message's content is safe (a malicious-by-
+    design domain signs its own phishing mail just fine)."""
+    if dkim_result.get("verified") is not False:
+        return verdict
+
+    domain = dkim_result.get("signing_domain") or "an unknown domain"
+    note = (
+        f"DKIM signature independently verified as INVALID (claims to be signed by "
+        f"{domain}, but the cryptographic signature does not match - tampered in transit "
+        "or forged) - see websec_agent/dkim_verify.py"
     )
     new_verdict = dict(verdict)
     if verdict["label"] == "phishing":

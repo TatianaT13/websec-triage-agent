@@ -130,6 +130,16 @@ async def analyze_email(
     result["verdict"] = oc.apply_display_name_mismatch(
         result["verdict"], parsed["display_name"], parsed["from_domain"]
     )
+
+    try:
+        from websec_agent import dkim_verify as dv
+
+        dkim_result = await asyncio.to_thread(dv.verify_dkim_signature, content)
+        result["email"]["dkim_verification"] = dkim_result
+        result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result)
+    except RuntimeError:
+        pass  # DKIM verify extras not installed - degrade to the self-reported check only
+
     return templates.TemplateResponse(request, "result.html", {"result": result})
 
 

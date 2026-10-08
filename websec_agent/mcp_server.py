@@ -97,7 +97,14 @@ async def analyze_html(args):
     "any organization, not just the handful of global brands "
     "BRAND_LEGITIMATE_DOMAINS enumerates (web_analysis.py). Noisier than "
     "the auth check though: can false-positive on a legitimate "
-    "personal-name sender - see offline_content.display_name_domain_mismatch.",
+    "personal-name sender - see offline_content.display_name_domain_mismatch. "
+    "If requirements-email-verify.txt is installed, also independently "
+    "re-verifies the DKIM signature cryptographically against the signing "
+    "domain's public DNS key (not just reading the self-reported header "
+    "like the SPF/DKIM/DMARC check above) - an invalid signature is much "
+    "stronger evidence than a self-reported fail, and pushes the verdict "
+    "to phishing. Missing extras degrade silently to the self-reported "
+    "check only.",
     {"file_path": str, "url_hint": str, "check_virustotal": bool},
 )
 async def analyze_email(args):
@@ -118,6 +125,18 @@ async def analyze_email(args):
     result["verdict"] = oc.apply_display_name_mismatch(
         result["verdict"], parsed["display_name"], parsed["from_domain"]
     )
+
+    try:
+        from . import dkim_verify as dv
+
+        with open(args["file_path"], "rb") as f:
+            raw_bytes = f.read()
+        dkim_result = await asyncio.to_thread(dv.verify_dkim_signature, raw_bytes)
+        result["email"]["dkim_verification"] = dkim_result
+        result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result)
+    except RuntimeError:
+        pass  # DKIM verify extras not installed - degrade to the self-reported check only
+
     return {"content": [{"type": "text", "text": str(result)}]}
 
 
