@@ -48,7 +48,7 @@ jobs:
 
           meta = json.load(open('models/verdict_meta_model.meta.json'))
           meta_f1 = meta['metrics']['f1']
-          print(f'Verdict meta-model f1={meta_f1:.3f} (baseline={meta[\"baseline_hand_coded_f1\"]:.3f}, promoted={meta.get(\"promoted\")})')
+          print(f'Verdict meta-model f1={meta_f1:.3f} ({meta.get(\"model_type\")}, baseline={meta[\"baseline_hand_coded_f1\"]:.3f}, promoted={meta.get(\"promoted\")})')
           assert meta_f1 >= 0.5, f'meta-model f1={meta_f1:.3f} looks broken - refusing to commit'
           "
 

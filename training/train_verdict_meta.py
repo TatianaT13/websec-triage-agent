@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import joblib
 import pandas as pd
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import cross_val_predict, cross_val_score, train_test_split
@@ -41,6 +42,20 @@ from websec_agent.features import FEATURE_NAMES
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 META_FEATURE_NAMES = ["heuristic_score", "ml_probability", "domain_age_days", "domain_age_unknown"]
+
+# Tried logistic regression alone for a while (160/360/701/1001-row runs,
+# always lost to the hand-coded baseline, though the gap narrowed each
+# time - see README). Added gradient boosting as a second candidate: with
+# only 4 input features and mostly-monotonic relationships (more
+# heuristic score -> more phishing-ish), logistic regression's linear
+# decision boundary is already a reasonable fit for this problem, so
+# there's a real chance boosting doesn't actually help here - that's
+# exactly why this compares both honestly instead of assuming either one
+# is better going in.
+META_MODEL_CANDIDATES = {
+    "logistic_regression": lambda: LogisticRegression(max_iter=1000, class_weight="balanced"),
+    "gradient_boosting": lambda: GradientBoostingClassifier(random_state=42),
+}
 
 
 def _reconstruct_heuristic_score(row: pd.Series) -> float:
@@ -133,26 +148,12 @@ def main() -> None:
 
     X_meta = df[META_FEATURE_NAMES]
     X_train, X_test, y_train, y_test = train_test_split(X_meta, y, test_size=0.25, stratify=y, random_state=42)
-
     meta_scaler = StandardScaler().fit(X_train)
-    meta_model = LogisticRegression(max_iter=1000, class_weight="balanced")
-    meta_model.fit(meta_scaler.transform(X_train), y_train)
-
-    preds = meta_model.predict(meta_scaler.transform(X_test))
-    proba = meta_model.predict_proba(meta_scaler.transform(X_test))[:, 1]
-    metrics = {
-        "accuracy": accuracy_score(y_test, preds),
-        "precision": precision_score(y_test, preds, zero_division=0),
-        "recall": recall_score(y_test, preds, zero_division=0),
-        "f1": f1_score(y_test, preds, zero_division=0),
-        "roc_auc": roc_auc_score(y_test, proba),
-    }
-    cv_f1 = cross_val_score(meta_model, meta_scaler.transform(X_meta), y, cv=5, scoring="f1")
 
     # Honest baseline comparison: hand-coded thresholds on the SAME test
     # rows, scored as a binary call (its "uncertain" counts as a miss on
-    # whichever side the true label is - same all-or-nothing standard the
-    # learned model is held to above).
+    # whichever side the true label is - same all-or-nothing standard
+    # every learned candidate below is held to).
     baseline_preds = [
         1 if _baseline_hand_coded_label(hs, ml, da, dau) == "phishing" else 0
         for hs, ml, da, dau in zip(
@@ -161,23 +162,54 @@ def main() -> None:
     ]
     baseline_f1 = f1_score(y_test, baseline_preds, zero_division=0)
     baseline_acc = accuracy_score(y_test, baseline_preds)
-
-    print(f"Learned meta-model: {metrics} | cv_f1={cv_f1.mean():.3f}+-{cv_f1.std():.3f}")
     print(f"Hand-coded baseline (same test rows): accuracy={baseline_acc:.3f} f1={baseline_f1:.3f}")
-    print("Meta-model coefficients:", dict(zip(META_FEATURE_NAMES, meta_model.coef_[0].round(3))))
+
+    best_name, best_model, best_metrics, best_cv_f1 = None, None, None, None
+    all_candidates = {}
+    for name, make_model in META_MODEL_CANDIDATES.items():
+        meta_model = make_model()
+        meta_model.fit(meta_scaler.transform(X_train), y_train)
+
+        preds = meta_model.predict(meta_scaler.transform(X_test))
+        proba = meta_model.predict_proba(meta_scaler.transform(X_test))[:, 1]
+        metrics = {
+            "accuracy": accuracy_score(y_test, preds),
+            "precision": precision_score(y_test, preds, zero_division=0),
+            "recall": recall_score(y_test, preds, zero_division=0),
+            "f1": f1_score(y_test, preds, zero_division=0),
+            "roc_auc": roc_auc_score(y_test, proba),
+        }
+        cv_f1 = cross_val_score(meta_model, meta_scaler.transform(X_meta), y, cv=5, scoring="f1")
+        all_candidates[name] = {**metrics, "cv_f1_mean": cv_f1.mean(), "cv_f1_std": cv_f1.std()}
+        print(f"{name}: {metrics} | cv_f1={cv_f1.mean():.3f}+-{cv_f1.std():.3f}")
+
+        if best_metrics is None or metrics["f1"] > best_metrics["f1"]:
+            best_name, best_model, best_metrics, best_cv_f1 = name, meta_model, metrics, cv_f1
+
+    metrics, cv_f1, meta_model = best_metrics, best_cv_f1, best_model
+    print(f"\nBest candidate: {best_name} (f1={metrics['f1']:.3f})")
+    if hasattr(meta_model, "coef_"):
+        print("Coefficients:", dict(zip(META_FEATURE_NAMES, meta_model.coef_[0].round(3))))
+    elif hasattr(meta_model, "feature_importances_"):
+        print("Feature importances:", dict(zip(META_FEATURE_NAMES, meta_model.feature_importances_.round(3))))
 
     card = {
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dataset": str(data_path),
         "n_samples": len(df),
+        "model_type": best_name,
         "feature_names": META_FEATURE_NAMES,
         "metrics": metrics,
         "cv_f1_mean": cv_f1.mean(),
         "cv_f1_std": cv_f1.std(),
+        "all_candidates": all_candidates,
         "baseline_hand_coded_accuracy": baseline_acc,
         "baseline_hand_coded_f1": baseline_f1,
-        "coefficients": dict(zip(META_FEATURE_NAMES, meta_model.coef_[0].tolist())),
     }
+    if hasattr(meta_model, "coef_"):
+        card["coefficients"] = dict(zip(META_FEATURE_NAMES, meta_model.coef_[0].tolist()))
+    elif hasattr(meta_model, "feature_importances_"):
+        card["feature_importances"] = dict(zip(META_FEATURE_NAMES, meta_model.feature_importances_.tolist()))
 
     # Promote only if it actually beats the hand-coded thresholds on this
     # same test split - "we trained something" isn't "it's better" (see

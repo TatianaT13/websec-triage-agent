@@ -1,7 +1,8 @@
 {
-  "trained_at": "2026-10-07T06:27:03+00:00",
+  "trained_at": "2026-10-08T19:02:31+00:00",
   "dataset": "data/dataset.csv",
-  "n_samples": 160,
+  "n_samples": 1001,
+  "model_type": "gradient_boosting",
   "feature_names": [
     "heuristic_score",
     "ml_probability",
@@ -9,20 +10,41 @@
     "domain_age_unknown"
   ],
   "metrics": {
-    "accuracy": 0.95,
-    "precision": 1.0,
-    "recall": 0.9,
-    "f1": 0.9473684210526315,
-    "roc_auc": 0.995
+    "accuracy": 0.9282868525896414,
+    "precision": 0.963963963963964,
+    "recall": 0.8842975206611571,
+    "f1": 0.9224137931034483,
+    "roc_auc": 0.9769866497139225
   },
-  "cv_f1_mean": 0.9129499314983185,
-  "cv_f1_std": 0.043895736943095,
-  "baseline_hand_coded_accuracy": 0.925,
-  "baseline_hand_coded_f1": 0.918918918918919,
-  "coefficients": {
-    "heuristic_score": 0.17133372100110877,
-    "ml_probability": 2.2895983269511193,
-    "domain_age_days": -0.8514430522172133,
-    "domain_age_unknown": -0.1424490242045826
-  }
+  "cv_f1_mean": 0.910747013295718,
+  "cv_f1_std": 0.02856354010501471,
+  "all_candidates": {
+    "logistic_regression": {
+      "accuracy": 0.9163346613545816,
+      "precision": 0.9166666666666666,
+      "recall": 0.9090909090909091,
+      "f1": 0.9128630705394191,
+      "roc_auc": 0.9690400508582327,
+      "cv_f1_mean": 0.9180493586265426,
+      "cv_f1_std": 0.0396651622146453
+    },
+    "gradient_boosting": {
+      "accuracy": 0.9282868525896414,
+      "precision": 0.963963963963964,
+      "recall": 0.8842975206611571,
+      "f1": 0.9224137931034483,
+      "roc_auc": 0.9769866497139225,
+      "cv_f1_mean": 0.910747013295718,
+      "cv_f1_std": 0.02856354010501471
+    }
+  },
+  "baseline_hand_coded_accuracy": 0.9203187250996016,
+  "baseline_hand_coded_f1": 0.9137931034482759,
+  "feature_importances": {
+    "heuristic_score": 0.009699443417543764,
+    "ml_probability": 0.9227682617153316,
+    "domain_age_days": 0.06018385540501646,
+    "domain_age_unknown": 0.007348439462108103
+  },
+  "promoted": true
 }
