@@ -15,21 +15,28 @@ Then open http://127.0.0.1:8000 - binds to localhost only by default via
 uvicorn; do not expose this on a network interface without adding auth,
 since it will fetch whatever URL a visitor submits (same trust model as
 the CLI: a local tool for an operator who already controls the input).
+
+If you DO expose it beyond localhost: set WEBAPP_USERNAME + WEBAPP_PASSWORD
+to require HTTP Basic auth (unset by default - see websec_agent/webapp_security.py).
+Rate limiting is always on regardless (WEBAPP_RATE_LIMIT_MAX per
+WEBAPP_RATE_LIMIT_WINDOW_S, defaults generous enough not to affect normal
+single-operator use).
 """
 import asyncio
 import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from websec_agent import offline_content as oc
 from websec_agent import report as rpt
 from websec_agent import web_analysis as wa
+from websec_agent.webapp_security import rate_limit, require_auth
 
-app = FastAPI()
+app = FastAPI(dependencies=[Depends(rate_limit), Depends(require_auth)])
 templates = Jinja2Templates(directory="templates")
 
 # wa.fetch_html() already caps a live fetch at MAX_BYTES, but these three

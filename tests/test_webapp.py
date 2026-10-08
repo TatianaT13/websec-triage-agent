@@ -10,6 +10,23 @@ pytest.importorskip("fastapi", reason="requires requirements-web.txt")
 from fastapi.testclient import TestClient
 
 import webapp
+from websec_agent import webapp_security as sec
+
+
+@pytest.fixture(autouse=True)
+def _unlimited_rate_limit(monkeypatch):
+    # webapp.app's rate_limit dependency shares one module-level counter
+    # (websec_agent.webapp_security._limiter) keyed by client IP - and
+    # TestClient always reports the same fixed IP ("testclient") for
+    # every request, in every test file, within one pytest run. Without
+    # this, this file's own ~19 requests already sit right at the
+    # default budget (20/60s) - one more test added later and the whole
+    # suite starts failing on 429s that have nothing to do with what's
+    # actually being tested. Give this file's client an effectively
+    # unlimited budget instead; rate limiting itself is covered by
+    # test_webapp_security.py's own isolated limiter instances.
+    monkeypatch.setattr(sec, "_limiter", sec._FixedWindowLimiter(max_requests=10_000, window_seconds=60))
+
 
 client = TestClient(webapp.app)
 
