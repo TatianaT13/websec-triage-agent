@@ -137,8 +137,10 @@ async def analyze_email(
         from websec_agent import dkim_verify as dv
 
         dkim_result = await asyncio.to_thread(dv.verify_dkim_signature, content)
+        if dkim_result.get("verified") is True:
+            dkim_result["aligned"] = oc.dkim_domain_aligned(dkim_result.get("signing_domain"), parsed["from_domain"])
         result["email"]["dkim_verification"] = dkim_result
-        result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result)
+        result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result, parsed["from_domain"])
     except RuntimeError:
         pass  # DKIM verify extras not installed - degrade to the self-reported check only
 

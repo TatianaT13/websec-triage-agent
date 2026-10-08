@@ -210,7 +210,22 @@ def apply_display_name_mismatch(verdict: dict, display_name: str, from_domain: s
     return new_verdict
 
 
-def apply_dkim_verification(verdict: dict, dkim_result: dict) -> dict:
+def dkim_domain_aligned(signing_domain: str | None, from_domain: str) -> bool:
+    """DMARC-style "relaxed" alignment: the DKIM signing domain and the
+    From: header's domain must share the same organizational/registrable
+    domain (mail.example.com aligns with example.com) - not necessarily
+    an exact match, which is how DMARC itself defines relaxed alignment
+    (the common default; "strict" mode requiring an exact match is rarer
+    in practice). Returns True (nothing to flag) if either domain is
+    missing - alignment has nothing to check without both."""
+    if not signing_domain or not from_domain:
+        return True
+    from . import web_analysis as wa
+
+    return wa._registrable_domain(signing_domain.lower()) == wa._registrable_domain(from_domain.lower())
+
+
+def apply_dkim_verification(verdict: dict, dkim_result: dict, from_domain: str | None = None) -> dict:
     """Unlike apply_email_auth's DKIM check (self-reported - a claim
     from whichever mail system added Authentication-Results),
     dkim_result comes from websec_agent.dkim_verify actually
@@ -222,20 +237,43 @@ def apply_dkim_verification(verdict: dict, dkim_result: dict) -> dict:
     tampered in transit or forged outright) pushes hard toward phishing.
     verified=None (no DKIM-Signature header at all) is not evidence
     either way - plenty of legitimate mail isn't DKIM-signed, so absence
-    isn't suspicious the way an invalid signature is. verified=True does
-    NOT push toward benign - same reasoning as apply_email_auth: a valid
-    signature only proves the signing domain really authorized the
-    message, not that the message's content is safe (a malicious-by-
-    design domain signs its own phishing mail just fine)."""
-    if dkim_result.get("verified") is not False:
+    isn't suspicious the way an invalid signature is.
+
+    verified=True does NOT by itself push toward benign - same reasoning
+    as apply_email_auth: a valid signature only proves the signing
+    domain really authorized the message, not that the message's
+    content is safe. But a valid signature from a domain that doesn't
+    match the visible From: header (from_domain) - this is what DMARC
+    calls identifier alignment, and it's the gap a prior version of this
+    function had: it only checked whether the signature validated, never
+    whether it was signed by the domain it claims to be from. A message
+    can carry a perfectly valid DKIM signature from some unrelated
+    platform (anything an attacker has a legitimate signing identity on
+    - a SaaS mailer, a compromised/abused domain) while the From: header
+    claims to be a completely different brand. That mismatch is computed
+    independently here too (dkim_domain_aligned), not self-reported -
+    and DOES push toward phishing, unlike a bare valid-and-aligned
+    signature."""
+    verified = dkim_result.get("verified")
+    signing_domain = dkim_result.get("signing_domain")
+
+    if verified is False:
+        domain = signing_domain or "an unknown domain"
+        note = (
+            f"DKIM signature independently verified as INVALID (claims to be signed by "
+            f"{domain}, but the cryptographic signature does not match - tampered in transit "
+            "or forged) - see websec_agent/dkim_verify.py"
+        )
+    elif verified is True and from_domain and not dkim_domain_aligned(signing_domain, from_domain):
+        note = (
+            f"DKIM signature is cryptographically VALID, but signed by {signing_domain!r} - "
+            f"which does not match the claimed sender domain {from_domain!r}. The signature is "
+            "real, just not from who the message claims to be from (DMARC identifier "
+            "misalignment, computed independently - see websec_agent/dkim_verify.py)"
+        )
+    else:
         return verdict
 
-    domain = dkim_result.get("signing_domain") or "an unknown domain"
-    note = (
-        f"DKIM signature independently verified as INVALID (claims to be signed by "
-        f"{domain}, but the cryptographic signature does not match - tampered in transit "
-        "or forged) - see websec_agent/dkim_verify.py"
-    )
     new_verdict = dict(verdict)
     if verdict["label"] == "phishing":
         new_verdict["confidence"] = f"{verdict['confidence']}; {note}"

@@ -158,8 +158,14 @@ async def analyze_html(args):
     "domain's public DNS key (not just reading the self-reported header "
     "like the SPF/DKIM/DMARC check above) - an invalid signature is much "
     "stronger evidence than a self-reported fail, and pushes the verdict "
-    "to phishing. Missing extras degrade silently to the self-reported "
-    "check only. Also looks up a BIMI record (default._bimi.<domain>) for "
+    "to phishing. Also independently checks DMARC-style identifier "
+    "alignment: a VALID signature from a domain that doesn't match the "
+    "From: header (e.g. signed by some unrelated mailer while claiming to "
+    "be a known brand) also pushes to phishing - a valid signature alone "
+    "proves authenticity of the signer, not that the signer is who the "
+    "message claims to be. Missing extras degrade silently to the "
+    "self-reported check only. Also looks up a BIMI record "
+    "(default._bimi.<domain>) for "
     "the sender's domain, shown as result['email']['bimi'] - purely "
     "informational, never affects the verdict either way: presence just "
     "means the domain enforces DMARC and chose to display a logo, not "
@@ -193,8 +199,10 @@ async def analyze_email(args):
         with open(args["file_path"], "rb") as f:
             raw_bytes = f.read()
         dkim_result = await asyncio.to_thread(dv.verify_dkim_signature, raw_bytes)
+        if dkim_result.get("verified") is True:
+            dkim_result["aligned"] = oc.dkim_domain_aligned(dkim_result.get("signing_domain"), parsed["from_domain"])
         result["email"]["dkim_verification"] = dkim_result
-        result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result)
+        result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result, parsed["from_domain"])
     except RuntimeError:
         pass  # DKIM verify extras not installed - degrade to the self-reported check only
 

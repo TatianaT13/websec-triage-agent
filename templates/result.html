@@ -37,7 +37,9 @@
       {% if result.email.dkim_verification %}
       {% set dv = result.email.dkim_verification %}
       <tr><td>DKIM (vérifié par nous)</td><td>
-        {% if dv.verified == true %}✅ signature cryptographique valide ({{ dv.signing_domain }})
+        {% if dv.verified == true %}
+          ✅ signature cryptographique valide ({{ dv.signing_domain }})
+          {% if dv.aligned == false %} — ⚠️ mais ce domaine ne correspond pas à l'expéditeur affiché (désalignement DMARC){% endif %}
         {% elif dv.verified == false %}❌ signature invalide ou falsifiée ({{ dv.signing_domain or "domaine inconnu" }})
         {% else %}— aucune signature DKIM présente{% endif %}
       </td></tr>

@@ -105,3 +105,62 @@ def test_apply_dkim_verification_does_not_mutate_input():
     original = dict(BENIGN_VERDICT)
     oc.apply_dkim_verification(BENIGN_VERDICT, {"verified": False, "signing_domain": "x", "detail": "x"})
     assert BENIGN_VERDICT == original
+
+
+# --- DKIM/DMARC identifier alignment -------------------------------------
+# A prior version of apply_dkim_verification only checked whether the
+# signature validated, never whether it was signed by the domain it claims
+# to be from - a message can carry a perfectly valid signature from an
+# unrelated domain (any legitimate signing identity an attacker has access
+# to) while the From: header claims to be a different brand entirely.
+
+
+def test_dkim_domain_aligned_exact_match():
+    assert oc.dkim_domain_aligned("paypal.com", "paypal.com") is True
+
+
+def test_dkim_domain_aligned_relaxed_subdomain():
+    # DMARC's default "relaxed" alignment: a subdomain of the same
+    # organizational domain still counts as aligned.
+    assert oc.dkim_domain_aligned("mail.paypal.com", "paypal.com") is True
+    assert oc.dkim_domain_aligned("paypal.com", "secure.paypal.com") is True
+
+
+def test_dkim_domain_not_aligned_unrelated_domain():
+    assert oc.dkim_domain_aligned("some-saas-mailer.com", "paypal.com") is False
+
+
+def test_dkim_domain_aligned_true_when_either_domain_missing():
+    # Nothing to check without both domains - must not false-positive.
+    assert oc.dkim_domain_aligned(None, "paypal.com") is True
+    assert oc.dkim_domain_aligned("paypal.com", "") is True
+
+
+def test_apply_dkim_verification_flags_valid_signature_from_unaligned_domain():
+    result = oc.apply_dkim_verification(
+        BENIGN_VERDICT,
+        {"verified": True, "signing_domain": "some-saas-mailer.com", "detail": "x"},
+        from_domain="paypal.com",
+    )
+    assert result["label"] == "phishing"
+    assert "some-saas-mailer.com" in result["confidence"]
+    assert "paypal.com" in result["confidence"]
+    assert "misalignment" in result["confidence"]
+
+
+def test_apply_dkim_verification_no_change_when_verified_true_and_aligned():
+    result = oc.apply_dkim_verification(
+        BENIGN_VERDICT,
+        {"verified": True, "signing_domain": "paypal.com", "detail": "x"},
+        from_domain="paypal.com",
+    )
+    assert result == BENIGN_VERDICT
+
+
+def test_apply_dkim_verification_no_change_when_from_domain_not_provided():
+    # Backward-compatible default: without from_domain, can't check
+    # alignment, so a valid signature is neither flagged nor assumed safe.
+    result = oc.apply_dkim_verification(
+        BENIGN_VERDICT, {"verified": True, "signing_domain": "some-saas-mailer.com", "detail": "x"}
+    )
+    assert result == BENIGN_VERDICT

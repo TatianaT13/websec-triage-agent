@@ -179,6 +179,27 @@ def test_analyze_email_shows_independent_dkim_verification_failure(tmp_path, mon
     assert "evil.example" in resp.text
 
 
+def test_analyze_email_flags_valid_dkim_signature_from_unaligned_domain(tmp_path, monkeypatch):
+    # A valid signature from a domain unrelated to the claimed sender -
+    # the gap a prior version of apply_dkim_verification had (it only
+    # checked whether the signature validated, never who signed it).
+    import websec_agent.dkim_verify as dv_module
+
+    monkeypatch.setattr(
+        dv_module,
+        "verify_dkim_signature",
+        lambda raw: {"verified": True, "signing_domain": "some-saas-mailer.com", "detail": "mocked"},
+    )
+    eml_path = tmp_path / "misaligned.eml"
+    _write_eml(eml_path, from_addr="service@paypal.com")
+    with open(eml_path, "rb") as f:
+        resp = client.post("/analyze-email", files={"eml_file": ("misaligned.eml", f, "message/rfc822")})
+    assert resp.status_code == 200
+    assert 'class="badge badge-phishing"' in resp.text
+    assert "désalignement DMARC" in resp.text
+    assert "some-saas-mailer.com" in resp.text
+
+
 def test_analyze_email_shows_bimi_info_without_affecting_verdict(tmp_path, monkeypatch):
     import websec_agent.bimi_lookup as bimi_module
     from email.message import EmailMessage
