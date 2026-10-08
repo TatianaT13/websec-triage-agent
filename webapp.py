@@ -140,6 +140,13 @@ async def analyze_email(
     except RuntimeError:
         pass  # DKIM verify extras not installed - degrade to the self-reported check only
 
+    try:
+        from websec_agent import bimi_lookup as bl
+
+        result["email"]["bimi"] = await asyncio.to_thread(bl.lookup_bimi, parsed["from_domain"])
+    except RuntimeError:
+        pass  # dnspython not installed - BIMI is purely informational, never required
+
     return templates.TemplateResponse(request, "result.html", {"result": result})
 
 

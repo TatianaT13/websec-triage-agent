@@ -104,7 +104,13 @@ async def analyze_html(args):
     "like the SPF/DKIM/DMARC check above) - an invalid signature is much "
     "stronger evidence than a self-reported fail, and pushes the verdict "
     "to phishing. Missing extras degrade silently to the self-reported "
-    "check only.",
+    "check only. Also looks up a BIMI record (default._bimi.<domain>) for "
+    "the sender's domain, shown as result['email']['bimi'] - purely "
+    "informational, never affects the verdict either way: presence just "
+    "means the domain enforces DMARC and chose to display a logo, not "
+    "that it's the brand it resembles (nothing stops a phishing domain "
+    "from publishing its own BIMI record) - explain this if asked whether "
+    "a BIMI logo proves authenticity.",
     {"file_path": str, "url_hint": str, "check_virustotal": bool},
 )
 async def analyze_email(args):
@@ -136,6 +142,13 @@ async def analyze_email(args):
         result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result)
     except RuntimeError:
         pass  # DKIM verify extras not installed - degrade to the self-reported check only
+
+    try:
+        from . import bimi_lookup as bl
+
+        result["email"]["bimi"] = await asyncio.to_thread(bl.lookup_bimi, parsed["from_domain"])
+    except RuntimeError:
+        pass  # dnspython not installed - BIMI is purely informational, never required
 
     return {"content": [{"type": "text", "text": str(result)}]}
 

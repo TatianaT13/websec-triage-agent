@@ -142,6 +142,32 @@ def test_analyze_email_shows_independent_dkim_verification_failure(tmp_path, mon
     assert "evil.example" in resp.text
 
 
+def test_analyze_email_shows_bimi_info_without_affecting_verdict(tmp_path, monkeypatch):
+    import websec_agent.bimi_lookup as bimi_module
+    from email.message import EmailMessage
+
+    monkeypatch.setattr(
+        bimi_module, "lookup_bimi", lambda domain: {"present": True, "logo_url": "https://x/logo.svg", "has_vmc": True}
+    )
+    # Deliberately no brand keyword anywhere, so the only thing that could
+    # move the verdict here is BIMI itself - isolates the "informational
+    # only" claim instead of relying on a brand-mismatch score happening
+    # to stay under the phishing threshold.
+    msg = EmailMessage()
+    msg["Subject"] = "Monthly newsletter"
+    msg["From"] = "newsletter@example.com"
+    msg.set_content("plain fallback")
+    msg.add_alternative("<html><head><title>Newsletter</title></head><body>hi</body></html>", subtype="html")
+    eml_path = tmp_path / "bimi.eml"
+    eml_path.write_bytes(bytes(msg))
+
+    with open(eml_path, "rb") as f:
+        resp = client.post("/analyze-email", files={"eml_file": ("bimi.eml", f, "message/rfc822")})
+    assert resp.status_code == 200
+    assert "certificat de marque" in resp.text
+    assert 'class="badge badge-benign"' in resp.text or 'class="badge badge-uncertain"' in resp.text
+
+
 def test_analyze_email_escapes_attacker_controlled_subject(tmp_path):
     eml_path = tmp_path / "xss.eml"
     _write_eml(eml_path, subject="<script>alert(1)</script>", from_addr="evil@evil.example")

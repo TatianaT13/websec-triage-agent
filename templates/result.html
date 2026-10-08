@@ -42,8 +42,15 @@
         {% else %}— aucune signature DKIM présente{% endif %}
       </td></tr>
       {% endif %}
+      {% if result.email.bimi %}
+      <tr><td>BIMI (info, pas une preuve)</td><td>
+        {% if result.email.bimi.present %}
+          logo déclaré{% if result.email.bimi.has_vmc %} + certificat de marque (VMC){% endif %}
+        {% else %}absent{% endif %}
+      </td></tr>
+      {% endif %}
     </table>
-    <p class="muted">SPF/DMARC et la ligne "DKIM (auto-déclaré)" sont auto-déclarés par le serveur qui a ajouté l'en-tête Authentication-Results, pas vérifiés par cet outil. La ligne "DKIM (vérifié par nous)" (si présente) recalcule réellement la signature cryptographique contre la clé DNS publique du domaine signataire — voir README.</p>
+    <p class="muted">SPF/DMARC et la ligne "DKIM (auto-déclaré)" sont auto-déclarés par le serveur qui a ajouté l'en-tête Authentication-Results, pas vérifiés par cet outil. La ligne "DKIM (vérifié par nous)" (si présente) recalcule réellement la signature cryptographique contre la clé DNS publique du domaine signataire. BIMI est purement informatif et n'influence jamais le verdict : sa présence prouve que le domaine applique DMARC et a choisi d'afficher un logo — pas qu'il s'agit vraiment de la marque en question (un domaine de phishing peut publier son propre BIMI). Voir README.</p>
   </div>
   {% endif %}
 
