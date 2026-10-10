@@ -1,5 +1,16 @@
-"""Tests for the RDAP-based domain age lookup."""
+"""Tests for the RDAP-based domain age lookup. Makes real network calls
+(IANA bootstrap + the per-domain RDAP server) on purpose - this file's job
+is testing that real integration, unlike every other test file where
+tests/conftest.py stubs lookup_domain_age() to avoid depending on it."""
+import pytest
+
 from websec_agent import domain_age as da
+
+
+@pytest.fixture(autouse=True)
+def _no_real_rdap_calls():
+    """Override the blanket stub from tests/conftest.py - this file's
+    whole point is exercising the real RDAP calls."""
 
 
 def test_platform_hosted_subdomain_has_no_meaningful_age():

@@ -305,10 +305,15 @@ def main() -> None:
 
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     fieldnames = feat.FEATURE_NAMES + ["heuristic_score", "label", "source_url", "markuplm_embedding"]
-    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+    # Write to a temp file in the same directory, then atomically replace the
+    # real dataset - a kill/crash mid-write (collection can run for hours)
+    # must never leave dataset.csv truncated or half-written.
+    tmp_path = Path(out_csv).with_suffix(".csv.tmp")
+    with open(tmp_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, restval="")
         writer.writeheader()
         writer.writerows(all_rows)
+    os.replace(tmp_path, out_csv)
 
     n_phish = sum(1 for r in all_rows if str(r["label"]) == "1")
     n_benign = len(all_rows) - n_phish
