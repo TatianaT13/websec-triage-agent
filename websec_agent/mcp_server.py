@@ -310,9 +310,17 @@ async def export_report(args):
 @tool(
     "ml_classify_webpage",
     "Fetch a URL and score it with the trained phishing/benign classifier "
-    "(logistic regression on structural+IOC features, trained on real "
-    "OpenPhish samples). Complements analyze_webpage's rule-based score with "
-    "a learned probability. Requires the MLOps extras and a trained model.",
+    "(structural+IOC features, trained on real OpenPhish samples - "
+    "models/phishing_classifier.meta.json says which algorithm is "
+    "currently promoted). Complements analyze_webpage's rule-based score "
+    "with a learned probability. The result also includes "
+    "result['explanation']: up to 3 features that most drove THIS "
+    "specific prediction (not just globally important features) via "
+    "feature ablation - each one's actual value on this page and how "
+    "much removing it (replacing it with a typical-benign-page value) "
+    "would have shifted the phishing probability. Useful for explaining "
+    "*why* the model called it, not just the number. Requires the MLOps "
+    "extras and a trained model.",
     {"url": str},
 )
 async def ml_classify_webpage(args):

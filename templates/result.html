@@ -97,6 +97,14 @@
     <h2>Classifieur ML</h2>
     {% if result.ml_classifier %}
     <p>{{ result.ml_classifier.label }} — probabilité phishing {{ "%.2f"|format(result.ml_classifier.phishing_probability) }}</p>
+    {% if result.ml_classifier.explanation %}
+    <p class="muted">Facteurs les plus influents pour cette page précise (pas juste l'importance globale du modèle) :</p>
+    <ul>
+      {% for item in result.ml_classifier.explanation %}
+      <li><code>{{ item.feature }}</code> = {{ item.value }} ({{ "+" if item.contribution >= 0 else "" }}{{ "%.3f"|format(item.contribution) }} sur la probabilité phishing)</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
     {% else %}<p class="muted">Indisponible (extras MLOps non installés ou pas de modèle entraîné).</p>{% endif %}
   </div>
 

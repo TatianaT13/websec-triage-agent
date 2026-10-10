@@ -1,6 +1,6 @@
 {
   "model_type": "random_forest",
-  "trained_at": "2026-10-08T16:11:58+00:00",
+  "trained_at": "2026-10-10T07:37:21+00:00",
   "dataset": "data/dataset.csv",
   "n_samples": 1001,
   "n_phish": 481,
@@ -61,5 +61,33 @@
       "cv_f1_mean": 0.9476087679126204,
       "cv_f1_std": 0.010289364253405648
     }
+  },
+  "benign_feature_means": {
+    "num_forms": 2.0846153846153848,
+    "has_password_field": 0.06346153846153846,
+    "has_external_password_action": 0.0,
+    "has_non_https_password_action": 0.0019230769230769232,
+    "script_src_count": 11.301923076923076,
+    "external_script_ratio": 0.28064300609712345,
+    "link_count": 144.4269230769231,
+    "external_link_ratio": 0.15037384371728119,
+    "iframe_count": 0.49423076923076925,
+    "favicon_is_external": 0.10576923076923077,
+    "meta_refresh": 0.026923076923076925,
+    "brand_in_title_mismatch": 0.0,
+    "brand_in_text_mismatch": 0.04423076923076923,
+    "domain_count": 11.75576923076923,
+    "punycode_domain_count": 0.0019230769230769232,
+    "shortener_link_count": 0.01730769230769231,
+    "ip_literal_url_count": 0.0038461538461538464,
+    "suspicious_tld_domain_count": 0.0,
+    "urgency_word_count": 0.05,
+    "title_length": 42.54615384615385,
+    "domain_length": 15.217307692307692,
+    "domain_hyphen_count": 0.08653846153846154,
+    "domain_digit_count": 0.1076923076923077,
+    "domain_age_days": 4905.325,
+    "domain_age_unknown": 0.23461538461538461,
+    "domain_is_platform_hosted": 0.0057692307692307696
   }
 }

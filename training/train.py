@@ -96,6 +96,12 @@ def main() -> None:
     MODELS_DIR.mkdir(exist_ok=True)
     joblib.dump({"model": best_model, "scaler": best_scaler}, MODELS_DIR / "phishing_classifier.joblib")
 
+    # Benign-class feature means - used at inference time by
+    # classifier.explain_prediction() as the "what a typical benign page
+    # looks like" baseline for per-prediction feature ablation (see that
+    # function's docstring for why this isn't SHAP).
+    benign_feature_means = {name: float(X[y == 0][name].mean()) for name in FEATURE_NAMES}
+
     model_card = {
         "model_type": best_name,
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -106,6 +112,7 @@ def main() -> None:
         "feature_names": FEATURE_NAMES,
         "metrics": results[best_name],
         "all_candidates": results,
+        "benign_feature_means": benign_feature_means,
     }
     with open(MODELS_DIR / "phishing_classifier.meta.json", "w", encoding="utf-8") as f:
         json.dump(model_card, f, indent=2)

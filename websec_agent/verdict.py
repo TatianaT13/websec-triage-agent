@@ -4,7 +4,9 @@ leaving the agent (or the user) to reconcile several opinions by hand.
 
 Two ways this combination happens, in order of preference:
 1. A learned meta-model (training/train_verdict_meta.py) if one has been
-   trained - a small logistic regression over
+   trained and actually promoted (logistic regression or gradient
+   boosting, whichever won the honest comparison against the baseline -
+   see models/verdict_meta_model.meta.json for which) over
    [heuristic_score, ml_probability, domain_age_days, domain_age_unknown]
    that replaces the hand-picked thresholds below with learned weights.
 2. The hand-coded thresholds in this file, when the meta-model isn't
