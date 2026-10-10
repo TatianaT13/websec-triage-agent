@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Collected phishing URLs legitimately contain base64 tracking tokens of their own (phishing-kit campaign tracking) - not secrets belonging to this project."
+paths = [
+  '''data/dataset\.csv''',
+]

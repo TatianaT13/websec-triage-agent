@@ -1,5 +1,5 @@
 -r requirements.txt
-transformers>=4.41
-torch>=2.2
-huggingface_hub>=0.23
-picklescan>=0.0.22
+transformers==5.19.0
+torch==2.14.1
+huggingface_hub==2.2.0
+picklescan==1.0.4

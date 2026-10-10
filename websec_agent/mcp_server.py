@@ -202,27 +202,51 @@ async def analyze_email(args):
     )
     result["verdict"] = oc.apply_dangerous_attachments(result["verdict"], parsed["attachments"])
 
-    try:
-        from . import dkim_verify as dv
-
-        with open(args["file_path"], "rb") as f:
-            raw_bytes = f.read()
-        dkim_result = await asyncio.to_thread(dv.verify_dkim_signature, raw_bytes)
-        if dkim_result.get("verified") is True:
-            dkim_result["aligned"] = oc.dkim_domain_aligned(dkim_result.get("signing_domain"), parsed["from_domain"])
+    # DKIM verification and the BIMI lookup are both independent DNS-bound
+    # calls (neither needs the other's result) - run them concurrently
+    # instead of back to back, each still degrading silently on its own if
+    # its extras aren't installed.
+    dkim_result, bimi_result = await asyncio.gather(
+        _try_dkim_verification(args["file_path"], parsed["from_domain"]),
+        _try_bimi_lookup(parsed["from_domain"]),
+    )
+    if dkim_result is not None:
         result["email"]["dkim_verification"] = dkim_result
         result["verdict"] = oc.apply_dkim_verification(result["verdict"], dkim_result, parsed["from_domain"])
-    except RuntimeError:
-        pass  # DKIM verify extras not installed - degrade to the self-reported check only
+    if bimi_result is not None:
+        result["email"]["bimi"] = bimi_result
 
+    return {"content": [{"type": "text", "text": str(result)}]}
+
+
+async def _try_dkim_verification(file_path: str, from_domain: str) -> dict | None:
+    """None when requirements-email-verify.txt isn't installed - DKIM
+    verification degrades to the self-reported check only."""
+    try:
+        from . import dkim_verify as dv
+        from . import offline_content as oc
+    except RuntimeError:
+        return None
+    try:
+        with open(file_path, "rb") as f:
+            raw_bytes = f.read()
+        dkim_result = await asyncio.to_thread(dv.verify_dkim_signature, raw_bytes)
+    except RuntimeError:
+        return None
+    if dkim_result.get("verified") is True:
+        dkim_result["aligned"] = oc.dkim_domain_aligned(dkim_result.get("signing_domain"), from_domain)
+    return dkim_result
+
+
+async def _try_bimi_lookup(from_domain: str) -> dict | None:
+    """None when dnspython isn't installed - BIMI is purely informational,
+    never required."""
     try:
         from . import bimi_lookup as bl
 
-        result["email"]["bimi"] = await asyncio.to_thread(bl.lookup_bimi, parsed["from_domain"])
+        return await asyncio.to_thread(bl.lookup_bimi, from_domain)
     except RuntimeError:
-        pass  # dnspython not installed - BIMI is purely informational, never required
-
-    return {"content": [{"type": "text", "text": str(result)}]}
+        return None
 
 
 @tool(
