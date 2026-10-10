@@ -217,6 +217,45 @@ def test_analyze_email_flags_valid_dkim_signature_from_unaligned_domain(tmp_path
     assert "some-saas-mailer.com" in resp.text
 
 
+def test_analyze_email_flags_dangerous_attachment(tmp_path):
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg["Subject"] = "Facture"
+    msg["From"] = "service@example.com"
+    msg.set_content("voir pièce jointe")
+    msg.add_attachment(b"fake", maintype="application", subtype="pdf", filename="facture.pdf.exe")
+    eml_path = tmp_path / "dangerous.eml"
+    eml_path.write_bytes(bytes(msg))
+
+    with open(eml_path, "rb") as f:
+        resp = client.post("/analyze-email", files={"eml_file": ("dangerous.eml", f, "message/rfc822")})
+    assert resp.status_code == 200
+    assert 'class="badge badge-phishing"' in resp.text
+    assert "Pièces jointes" in resp.text
+    assert "extension dangereuse" in resp.text
+    assert "facture.pdf.exe" in resp.text
+
+
+def test_analyze_email_does_not_flag_a_clean_attachment(tmp_path):
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg["Subject"] = "Facture"
+    msg["From"] = "service@example.com"
+    msg.set_content("voir pièce jointe")
+    msg.add_attachment(b"%PDF-1.4 fake", maintype="application", subtype="pdf", filename="facture_octobre.pdf")
+    eml_path = tmp_path / "clean.eml"
+    eml_path.write_bytes(bytes(msg))
+
+    with open(eml_path, "rb") as f:
+        resp = client.post("/analyze-email", files={"eml_file": ("clean.eml", f, "message/rfc822")})
+    assert resp.status_code == 200
+    assert "Pièces jointes" in resp.text
+    assert "extension dangereuse" not in resp.text
+    assert 'class="badge badge-phishing"' not in resp.text
+
+
 def test_analyze_email_shows_bimi_info_without_affecting_verdict(tmp_path, monkeypatch):
     import websec_agent.bimi_lookup as bimi_module
     from email.message import EmailMessage

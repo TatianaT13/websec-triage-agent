@@ -135,10 +135,12 @@ async def analyze_email(
     result = await asyncio.to_thread(rpt.build_result_from_html, parsed["html"], url_hint, check_virustotal)
     result["email"] = {k: parsed[k] for k in ("subject", "from", "to", "date")}
     result["email"]["auth"] = parsed["auth"]
+    result["email"]["attachments"] = parsed["attachments"]
     result["verdict"] = oc.apply_email_auth(result["verdict"], parsed["auth"])
     result["verdict"] = oc.apply_display_name_mismatch(
         result["verdict"], parsed["display_name"], parsed["from_domain"]
     )
+    result["verdict"] = oc.apply_dangerous_attachments(result["verdict"], parsed["attachments"])
 
     try:
         from websec_agent import dkim_verify as dv

@@ -236,3 +236,124 @@ def test_apply_display_name_mismatch_does_not_mutate_the_input():
     original = dict(BENIGN_VERDICT)
     oc.apply_display_name_mismatch(BENIGN_VERDICT, "Vinci|Autoroutes", "marionnaud.fr")
     assert BENIGN_VERDICT == original
+
+
+# --- attachment inspection -------------------------------------------------
+# Metadata only - nothing is ever extracted, decompressed or executed. See
+# offline_content.py's module docstring and apply_dangerous_attachments.
+
+import io
+import zipfile
+
+
+def _eml_with_attachment(tmp_path, *, filename, content=b"x", maintype="application", subtype="octet-stream"):
+    msg = EmailMessage()
+    msg["From"] = "test@example.com"
+    msg.set_content("body")
+    msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
+    return _write_eml(tmp_path, msg, name="attachment.eml")
+
+
+def test_parse_eml_file_extracts_plain_attachment_metadata(tmp_path):
+    path = _eml_with_attachment(tmp_path, filename="facture.pdf", maintype="application", subtype="pdf")
+    parsed = oc.parse_eml_file(path)
+    assert len(parsed["attachments"]) == 1
+    att = parsed["attachments"][0]
+    assert att["filename"] == "facture.pdf"
+    assert att["dangerous_extension"] is False
+    assert att["double_extension"] is False
+    assert att["archive_contents"] is None
+
+
+def test_dangerous_extension_is_flagged(tmp_path):
+    path = _eml_with_attachment(tmp_path, filename="update.exe")
+    parsed = oc.parse_eml_file(path)
+    assert parsed["attachments"][0]["dangerous_extension"] is True
+
+
+def test_double_extension_is_flagged(tmp_path):
+    # Real disguise pattern: looks like a PDF at a glance, actually an exe.
+    path = _eml_with_attachment(tmp_path, filename="facture.pdf.exe")
+    parsed = oc.parse_eml_file(path)
+    att = parsed["attachments"][0]
+    assert att["dangerous_extension"] is True
+    assert att["double_extension"] is True
+
+
+def test_plain_extension_is_not_flagged_as_double(tmp_path):
+    path = _eml_with_attachment(tmp_path, filename="report.final.pdf")
+    parsed = oc.parse_eml_file(path)
+    assert parsed["attachments"][0]["double_extension"] is False
+
+
+def test_zip_contents_are_listed_without_extraction(tmp_path):
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w") as zf:
+        zf.writestr("invoice.scr", b"fake")
+        zf.writestr("readme.txt", b"fake")
+    path = _eml_with_attachment(
+        tmp_path, filename="documents.zip", maintype="application", subtype="zip", content=zip_buf.getvalue()
+    )
+    parsed = oc.parse_eml_file(path)
+    contents = parsed["attachments"][0]["archive_contents"]
+    assert {c["filename"] for c in contents} == {"invoice.scr", "readme.txt"}
+    assert next(c for c in contents if c["filename"] == "invoice.scr")["dangerous_extension"] is True
+    assert next(c for c in contents if c["filename"] == "readme.txt")["dangerous_extension"] is False
+
+
+def test_not_a_zip_returns_none_archive_contents(tmp_path):
+    # A .zip-named attachment whose bytes aren't actually a valid zip -
+    # must not raise, just report "couldn't read it as an archive".
+    path = _eml_with_attachment(
+        tmp_path, filename="fake.zip", maintype="application", subtype="zip", content=b"not actually a zip"
+    )
+    parsed = oc.parse_eml_file(path)
+    assert parsed["attachments"][0]["archive_contents"] is None
+
+
+def test_apply_dangerous_attachments_flags_dangerous_extension():
+    result = oc.apply_dangerous_attachments(
+        BENIGN_VERDICT,
+        [{"filename": "update.exe", "dangerous_extension": True, "double_extension": False, "archive_contents": None}],
+    )
+    assert result["label"] == "phishing"
+    assert "update.exe" in result["confidence"]
+
+
+def test_apply_dangerous_attachments_flags_dangerous_zip_contents():
+    result = oc.apply_dangerous_attachments(
+        BENIGN_VERDICT,
+        [{
+            "filename": "documents.zip",
+            "dangerous_extension": False,
+            "double_extension": False,
+            "archive_contents": [
+                {"filename": "invoice.scr", "dangerous_extension": True, "declared_size_bytes": 10, "likely_zip_bomb": False}
+            ],
+        }],
+    )
+    assert result["label"] == "phishing"
+    assert "documents.zip" in result["confidence"]
+    assert "invoice.scr" in result["confidence"]
+
+
+def test_apply_dangerous_attachments_no_change_for_clean_attachments():
+    result = oc.apply_dangerous_attachments(
+        BENIGN_VERDICT,
+        [{"filename": "facture.pdf", "dangerous_extension": False, "double_extension": False, "archive_contents": None}],
+    )
+    assert result == BENIGN_VERDICT
+
+
+def test_apply_dangerous_attachments_no_change_with_no_attachments():
+    result = oc.apply_dangerous_attachments(BENIGN_VERDICT, [])
+    assert result == BENIGN_VERDICT
+
+
+def test_apply_dangerous_attachments_does_not_mutate_input():
+    original = dict(BENIGN_VERDICT)
+    oc.apply_dangerous_attachments(
+        BENIGN_VERDICT,
+        [{"filename": "x.exe", "dangerous_extension": True, "double_extension": False, "archive_contents": None}],
+    )
+    assert BENIGN_VERDICT == original

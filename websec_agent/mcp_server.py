@@ -171,7 +171,14 @@ async def analyze_html(args):
     "means the domain enforces DMARC and chose to display a logo, not "
     "that it's the brand it resembles (nothing stops a phishing domain "
     "from publishing its own BIMI record) - explain this if asked whether "
-    "a BIMI logo proves authenticity.",
+    "a BIMI logo proves authenticity. "
+    "Also inspects attachments (result['email']['attachments']) - metadata "
+    "only, nothing is ever extracted/decompressed/executed. Flags a "
+    "dangerous executable extension, a double extension disguising one "
+    "('facture.pdf.exe'), or (for a .zip attachment) a dangerous file "
+    "inside it - the zip's internal listing is read from its own central "
+    "directory, which doesn't require decompressing or even the password "
+    "if it's protected. Any of these push the verdict to phishing.",
     {"file_path": str, "url_hint": str, "check_virustotal": bool},
 )
 async def analyze_email(args):
@@ -188,10 +195,12 @@ async def analyze_email(args):
     )
     result["email"] = {k: parsed[k] for k in ("subject", "from", "to", "date")}
     result["email"]["auth"] = parsed["auth"]
+    result["email"]["attachments"] = parsed["attachments"]
     result["verdict"] = oc.apply_email_auth(result["verdict"], parsed["auth"])
     result["verdict"] = oc.apply_display_name_mismatch(
         result["verdict"], parsed["display_name"], parsed["from_domain"]
     )
+    result["verdict"] = oc.apply_dangerous_attachments(result["verdict"], parsed["attachments"])
 
     try:
         from . import dkim_verify as dv

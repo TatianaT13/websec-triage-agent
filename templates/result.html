@@ -53,6 +53,35 @@
       {% endif %}
     </table>
     <p class="muted">SPF/DMARC et la ligne "DKIM (auto-déclaré)" sont auto-déclarés par le serveur qui a ajouté l'en-tête Authentication-Results, pas vérifiés par cet outil. La ligne "DKIM (vérifié par nous)" (si présente) recalcule réellement la signature cryptographique contre la clé DNS publique du domaine signataire. BIMI est purement informatif et n'influence jamais le verdict : sa présence prouve que le domaine applique DMARC et a choisi d'afficher un logo — pas qu'il s'agit vraiment de la marque en question (un domaine de phishing peut publier son propre BIMI). Voir README.</p>
+
+    {% if result.email.attachments %}
+    <h3>Pièces jointes</h3>
+    <table>
+      {% for att in result.email.attachments %}
+      <tr>
+        <td><code>{{ att.filename }}</code></td>
+        <td>
+          {{ att.content_type }}, {{ att.size_bytes }} octets
+          {% if att.dangerous_extension or att.double_extension -%}
+            — ⚠️ <strong>extension dangereuse</strong>{% if att.double_extension %} (double extension, ex. "facture.pdf.exe"){% endif %}
+          {%- endif %}
+          {% if att.archive_contents %}
+          <ul>
+            {% for inner in att.archive_contents %}
+            <li>
+              {{ inner.filename }}
+              {%- if inner.dangerous_extension %} — ⚠️ <strong>dangereux</strong>{% endif %}
+              {%- if inner.likely_zip_bomb %} — ⚠️ taille déclarée suspecte (possible zip bomb){% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="muted">Métadonnées uniquement — rien n'est jamais extrait, décompressé ou exécuté. Pour un .zip, le contenu listé vient de sa table des matières interne (lisible même sans le mot de passe, si protégé) — pas d'une décompression réelle.</p>
+    {% endif %}
   </div>
   {% endif %}
 

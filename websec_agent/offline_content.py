@@ -30,6 +30,63 @@ from urllib.parse import urlsplit
 _AUTH_RESULT_RE = re.compile(r"\b(spf|dkim|dmarc)\s*=\s*([a-zA-Z]+)")
 _DKIM_SIGNING_DOMAIN_RE = re.compile(r"\bd=([^;\s]+)")
 
+_DANGEROUS_ATTACHMENT_EXTENSIONS = {
+    "exe", "scr", "bat", "cmd", "com", "pif", "vbs", "vbe", "js", "jse",
+    "jar", "msi", "ps1", "psm1", "wsf", "hta", "cpl", "lnk", "gadget",
+}
+_PLAUSIBLE_DECOY_EXTENSIONS = {"pdf", "docx", "doc", "xlsx", "xls", "jpg", "jpeg", "png", "txt", "csv", "ppt", "pptx"}
+# Declared-size threshold for flagging a zip bomb - checked from the
+# archive's OWN recorded uncompressed size (central directory metadata),
+# never by actually decompressing. 100 uncompressed MB from an email
+# attachment is already implausible for anything legitimate.
+_ZIP_BOMB_SIZE_THRESHOLD_BYTES = 100_000_000
+
+
+def _file_extension(filename: str) -> str:
+    return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+
+def _has_double_extension(filename: str) -> bool:
+    """"facture.pdf.exe" - a classic malware-delivery disguise: a
+    benign-looking extension immediately followed by the real
+    (dangerous) one, so a quick glance at the filename shows "pdf" while
+    the OS actually runs it as an executable."""
+    parts = filename.split(".")
+    if len(parts) < 3:
+        return False
+    return parts[-1].lower() in _DANGEROUS_ATTACHMENT_EXTENSIONS and parts[-2].lower() in _PLAUSIBLE_DECOY_EXTENSIONS
+
+
+def _inspect_zip_contents(zip_bytes: bytes) -> list[dict] | None:
+    """Lists a zip's internal filenames and their DECLARED (uncompressed)
+    size - entirely from the archive's central directory metadata, which
+    zipfile reads without decompressing or extracting a single byte.
+    This also works on a password-protected zip: only the file CONTENTS
+    are encrypted in the standard zip format, not the central directory
+    listing, so the names/sizes are still readable without the password
+    (we never attempt to read/decompress the actual content - that would
+    both need the password and risk a zip-bomb-style decompression, so
+    it's deliberately never attempted here). Returns None if the bytes
+    aren't a valid/readable zip at all."""
+    import io
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            infos = zf.infolist()
+    except zipfile.BadZipFile:
+        return None
+
+    return [
+        {
+            "filename": info.filename,
+            "dangerous_extension": _file_extension(info.filename) in _DANGEROUS_ATTACHMENT_EXTENSIONS,
+            "declared_size_bytes": info.file_size,
+            "likely_zip_bomb": info.file_size > _ZIP_BOMB_SIZE_THRESHOLD_BYTES,
+        }
+        for info in infos
+    ]
+
 
 def _parse_authentication_results(raw_headers: list[str]) -> dict:
     """Extracts spf=/dkim=/dmarc= verdicts from Authentication-Results
@@ -60,29 +117,52 @@ def _parse_authentication_results(raw_headers: list[str]) -> dict:
 
 def parse_eml_file(path: str) -> dict:
     """{"html", "subject", "from", "to", "date", "from_domain",
-    "display_name", "auth"}. from_domain is the sender address's domain
-    (e.g. "secure-paypal-verify.com" from "noreply@secure-paypal-verify.com")
-    - a reasonable default url_hint for build_result_from_html(): an
-    email's claimed sending domain is exactly the kind of thing our
-    brand/domain-mismatch heuristic is designed to catch, repurposed
-    from "page domain" to "sender domain". display_name is the From
-    header's free-text name part (e.g. "Vinci|Autoroutes" from
-    "Vinci|Autoroutes <donotreply@marionnaud.fr>") - see
-    display_name_domain_mismatch().
+    "display_name", "auth", "attachments"}. from_domain is the sender
+    address's domain (e.g. "secure-paypal-verify.com" from
+    "noreply@secure-paypal-verify.com") - a reasonable default url_hint
+    for build_result_from_html(): an email's claimed sending domain is
+    exactly the kind of thing our brand/domain-mismatch heuristic is
+    designed to catch, repurposed from "page domain" to "sender domain".
+    display_name is the From header's free-text name part (e.g.
+    "Vinci|Autoroutes" from "Vinci|Autoroutes <donotreply@marionnaud.fr>")
+    - see display_name_domain_mismatch().
 
     auth = {"spf", "dkim", "dmarc": "pass"/"fail"/"softfail"/.../None,
     "dkim_signing_domain": str | None, "header_count": int} - see
-    _parse_authentication_results()'s docstring for the trust caveat."""
+    _parse_authentication_results()'s docstring for the trust caveat.
+
+    attachments = [{"filename", "content_type", "size_bytes",
+    "dangerous_extension", "double_extension", "archive_contents"}, ...]
+    - metadata only, nothing is ever extracted/decompressed/executed.
+    archive_contents is the zip's internal file listing (see
+    _inspect_zip_contents) for a .zip attachment, else None - this is
+    the one place a real phishing delivery mechanism (not just a
+    phishing link in the body) gets looked at, see
+    apply_dangerous_attachments()."""
     with open(path, "rb") as f:
         msg = message_from_bytes(f.read(), policy=policy.default)
 
-    html_part, text_part = None, None
+    html_part, text_part, attachments = None, None, []
     for part in msg.walk():
         content_type = part.get_content_type()
         if content_type == "text/html" and html_part is None:
             html_part = part.get_content()
         elif content_type == "text/plain" and text_part is None:
             text_part = part.get_content()
+
+        if part.get_content_disposition() == "attachment":
+            filename = part.get_filename() or "(unnamed)"
+            payload = part.get_payload(decode=True) or b""
+            ext = _file_extension(filename)
+            archive_contents = _inspect_zip_contents(payload) if ext == "zip" else None
+            attachments.append({
+                "filename": filename,
+                "content_type": content_type,
+                "size_bytes": len(payload),
+                "dangerous_extension": ext in _DANGEROUS_ATTACHMENT_EXTENSIONS,
+                "double_extension": _has_double_extension(filename),
+                "archive_contents": archive_contents,
+            })
 
     if html_part is None:
         body = html_module.escape(text_part or "")
@@ -108,6 +188,7 @@ def parse_eml_file(path: str) -> dict:
         "from_domain": from_domain,
         "display_name": display_name,
         "auth": auth,
+        "attachments": attachments,
     }
 
 
@@ -274,6 +355,36 @@ def apply_dkim_verification(verdict: dict, dkim_result: dict, from_domain: str |
     else:
         return verdict
 
+    new_verdict = dict(verdict)
+    if verdict["label"] == "phishing":
+        new_verdict["confidence"] = f"{verdict['confidence']}; {note}"
+    else:
+        new_verdict["label"] = "phishing"
+        new_verdict["confidence"] = note
+    return new_verdict
+
+
+def apply_dangerous_attachments(verdict: dict, attachments: list[dict]) -> dict:
+    """Pushes toward phishing when an attachment - or a file INSIDE a zip
+    attachment, see _inspect_zip_contents - has a dangerous executable
+    extension, a double extension disguising one ("facture.pdf.exe"), or
+    a declared size consistent with a zip bomb. An archive attachment
+    (zip/rar/7z) is never flagged just for existing - legitimate senders
+    attach zips too - only actually dangerous contents are."""
+    flagged = []
+    for att in attachments:
+        if att["dangerous_extension"] or att["double_extension"]:
+            flagged.append(att["filename"])
+        for inner in att.get("archive_contents") or []:
+            if inner["dangerous_extension"]:
+                flagged.append(f"{att['filename']} -> {inner['filename']}")
+            elif inner["likely_zip_bomb"]:
+                flagged.append(f"{att['filename']} -> {inner['filename']} (implausible declared size, possible zip bomb)")
+
+    if not flagged:
+        return verdict
+
+    note = f"dangerous email attachment(s): {'; '.join(flagged)}"
     new_verdict = dict(verdict)
     if verdict["label"] == "phishing":
         new_verdict["confidence"] = f"{verdict['confidence']}; {note}"
