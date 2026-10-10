@@ -140,6 +140,15 @@ def _legitimate_domains_for(brand: str) -> frozenset[str]:
 URGENCY_WORDS = [
     "verify your account", "suspended", "urgent", "immediately", "click here",
     "confirm your identity", "unusual activity", "limited time", "act now",
+    # French equivalents - added after processing real French phishing
+    # content (the Vinci/marionnaud.fr case and others) with an
+    # English-only list that couldn't see any of it. Direct translations
+    # of the above, plus a couple of common French-specific phrasings
+    # ("dernière chance", "expire aujourd'hui") seen in real lure emails.
+    "vérifiez votre compte", "compte suspendu", "immédiatement",
+    "cliquez ici", "confirmez votre identité", "activité inhabituelle",
+    "temps limité", "agissez maintenant", "dernière chance",
+    "expire aujourd'hui",
 ]
 
 

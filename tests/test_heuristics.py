@@ -178,6 +178,26 @@ def test_credential_phish_scores_high():
     assert "urgency" in reasons
 
 
+def test_french_urgency_language_is_detected():
+    # Real case that motivated this: an email impersonating Vinci
+    # Autoroutes via marionnaud.fr used French urgency phrasing entirely
+    # invisible to the English-only URGENCY_WORDS list.
+    html = (
+        "<html><head><title>Vinci Autoroutes</title></head><body>"
+        "<p>Votre compte a été suspendu. Vérifiez votre compte immédiatement "
+        "pour éviter la fermeture définitive. Cliquez ici pour confirmer "
+        "votre identité - offre à durée limitée.</p></body></html>"
+    )
+    url = "https://marionnaud.fr/"
+    structure = wa.analyze_structure(html, url)
+    iocs = wa.extract_iocs(html, url)
+    verdict = wa.score_phishing(html, structure, iocs, url)
+    reasons = " ".join(verdict["reasons"])
+    assert "urgency" in reasons
+    assert "vérifiez votre compte" in reasons
+    assert "cliquez ici" in reasons
+
+
 def test_punycode_domain_is_extracted_as_ioc():
     iocs = wa.extract_iocs(PUNYCODE_IOC_HTML, "https://example.com")
     assert iocs["punycode_domains"] == ["xn--pypal-4ve.com"]
