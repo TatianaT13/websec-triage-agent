@@ -6,6 +6,17 @@
 
 Agent construit avec le [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk) pour l'analyse défensive de pages web : audit de structure HTML, extraction d'IOC, et score heuristique de phishing. Un outil optionnel basé sur [MarkupLM](https://huggingface.co/docs/transformers/model_doc/markuplm) permet de poser des questions sur le contenu d'une page (QA sur document HTML).
 
+## Pourquoi ce projet
+
+Chaque brique utilisée ici (vérification DKIM, lookup BIMI, urlscan.io, VirusTotal, classifieur ML de phishing) existe déjà individuellement, le plus souvent soit noyée dans une suite d'entreprise fermée et payante (Proofpoint, Mimecast, Microsoft Defender for Office 365), soit comme service web isolé qu'il faut assembler soi-même. Ce que ce projet apporte, ce n'est pas une brique inédite, mais une combinaison et des choix qui n'existent pas vraiment ailleurs sous cette forme :
+
+- **Un agent qui explique son raisonnement, pas un tableau de bord figé** : on lui demande en langage naturel, il choisit les outils, et le verdict final vient avec le *pourquoi* ("signature DKIM valide mais signée par un domaine différent du `From:`", "nom affiché 'Vinci|Autoroutes' mais domaine d'envoi `marionnaud.fr`") plutôt qu'un simple badge rouge/vert.
+- **Auditabilité empirique plutôt que confiance aveugle dans une API tierce** : chaque signal a été vérifié contre de vraies données avant d'être branché (vraie clé DNS publique de gmail.com pour DKIM, vrais enregistrements BIMI de LinkedIn/PayPal/eBay, vrai comportement 403 d'urlscan.io en lecture gratuite), et les limites trouvées en cours de route sont documentées honnêtement plutôt que masquées (voir *Limites connues* plus bas).
+- **Gratuit et self-hosted** : utilisable sans budget licence entreprise ni intégration complète d'une boîte mail.
+- **Angle français** : domaines bancaires régionaux (Crédit Agricole, LCL), institutions (impots.gouv.fr, Ameli, La Poste), et urgence en français — un angle mort typique des outils anglo-centrés (cf. le cas Vinci/Marionnaud documenté plus bas, raté par toutes les heuristiques "marque" tant qu'elles ne connaissaient que des marques internationales).
+
+Le positionnement honnête n'est pas "détecte mieux le phishing que Proofpoint" (affirmation non vérifiée et peu probable face à des moteurs qui tournent sur des millions de boîtes mail) mais : un agent transparent, auditable et gratuit, qui montre son raisonnement signal par signal plutôt que de trancher en boîte noire.
+
 ## Architecture
 
 ```mermaid
