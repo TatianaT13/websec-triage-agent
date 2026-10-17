@@ -1,0 +1,32 @@
+name: dependabot auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  auto-merge-patch:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      # Only patch-level bumps (e.g. 1.2.3 -> 1.2.4) auto-merge. Minor and
+      # major bumps (new features, breaking changes - pandas 2->3 and
+      # picklescan's Python-version-floor bump both landed as "safe" CI
+      # runs that actually broke local installs) stay a manual decision.
+      - name: Wait for this PR's own checks, then merge
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr checks "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --watch
+          gh pr merge "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --merge --delete-branch
