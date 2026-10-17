@@ -222,11 +222,9 @@ async def analyze_email(args):
 async def _try_dkim_verification(file_path: str, from_domain: str) -> dict | None:
     """None when requirements-email-verify.txt isn't installed - DKIM
     verification degrades to the self-reported check only."""
-    try:
-        from . import dkim_verify as dv
-        from . import offline_content as oc
-    except RuntimeError:
-        return None
+    from . import dkim_verify as dv
+    from . import offline_content as oc
+
     try:
         with open(file_path, "rb") as f:
             raw_bytes = f.read()
