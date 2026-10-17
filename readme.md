@@ -3,6 +3,8 @@
 [![tests](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/tests.yml)
 [![retrain](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/retrain.yml/badge.svg)](https://github.com/TatianaT13/websec-triage-agent/actions/workflows/retrain.yml)
 [![license](https://img.shields.io/github/license/TatianaT13/websec-triage-agent)](LICENSE)
+[![dataset](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FTatianaT13%2Fwebsec-triage-agent%2Fmain%2Fmodels%2Fbadges.json&query=%24.dataset_size&label=dataset&color=blue)](models/badges.json)
+[![classifier f1](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FTatianaT13%2Fwebsec-triage-agent%2Fmain%2Fmodels%2Fbadges.json&query=%24.classifier_f1&label=classifier%20f1&color=green)](models/badges.json)
 
 Agent construit avec le [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk) pour l'analyse défensive de pages web : audit de structure HTML, extraction d'IOC, et score heuristique de phishing. Un outil optionnel basé sur [MarkupLM](https://huggingface.co/docs/transformers/model_doc/markuplm) permet de poser des questions sur le contenu d'une page (QA sur document HTML).
 
