@@ -77,7 +77,8 @@ def _print_message(message) -> None:
                 args = ", ".join(f"{k}={v!r}" for k, v in block.input.items())
                 print(f"\n🔧 {name}({args})")
     elif isinstance(message, ResultMessage):
-        print(f"\n— {message.duration_ms / 1000:.1f}s · ${message.total_cost_usd:.3f} —")
+        cost = f"${message.total_cost_usd:.3f}" if message.total_cost_usd is not None else "cost unknown"
+        print(f"\n— {message.duration_ms / 1000:.1f}s · {cost} —")
 
 
 async def main(prompt: str) -> None:
