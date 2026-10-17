@@ -18,11 +18,12 @@ jobs:
             requirements.txt
             requirements-dev.txt
             requirements-mlops.txt
+            requirements-email-verify.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt -r requirements-mlops.txt
+          pip install -r requirements-dev.txt -r requirements-mlops.txt -r requirements-email-verify.txt
 
       - name: Run tests
         run: pytest tests/ -v
