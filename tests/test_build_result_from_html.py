@@ -1,9 +1,12 @@
 """Tests for report.build_result_from_html() - the no-live-fetch path used
 for pasted HTML or content extracted from an .eml (see
 test_offline_content.py for the .eml extraction itself)."""
+from websec_agent import web_analysis as wa
 from websec_agent.report import build_markdown_report, build_result_from_html
 
 from .fixtures import BENIGN_HTML, CREDENTIAL_PHISH_HTML
+
+SHORTENER_LINK_HTML = '<html><body><a href="https://bit.ly/abc123">click here</a></body></html>'
 
 
 def test_status_code_is_none_nothing_was_fetched():
@@ -29,3 +32,28 @@ def test_markdown_report_notes_content_was_not_fetched():
     result = build_result_from_html(BENIGN_HTML, "https://example.com")
     md = build_markdown_report(result)
     assert "non récupéré" in md
+
+
+def test_shortener_resolutions_absent_by_default():
+    result = build_result_from_html(SHORTENER_LINK_HTML, "https://example.com")
+    assert result["shortener_resolutions"] is None
+
+
+def test_shortener_resolutions_populated_when_opted_in(monkeypatch):
+    monkeypatch.setattr(
+        wa, "fetch_html", lambda url: {"final_url": "https://evil-phish.example/", "status_code": 200, "html": ""}
+    )
+    result = build_result_from_html(SHORTENER_LINK_HTML, "https://example.com", resolve_shorteners=True)
+    assert result["shortener_resolutions"] == [
+        {
+            "short_url": "https://bit.ly/abc123",
+            "resolved_url": "https://evil-phish.example/",
+            "resolved_domain": "evil-phish.example",
+            "error": None,
+        }
+    ]
+
+
+def test_shortener_resolutions_none_when_no_shortener_present():
+    result = build_result_from_html(BENIGN_HTML, "https://example.com", resolve_shorteners=True)
+    assert result["shortener_resolutions"] is None

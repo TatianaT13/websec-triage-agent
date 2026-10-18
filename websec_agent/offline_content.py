@@ -33,6 +33,11 @@ _DKIM_SIGNING_DOMAIN_RE = re.compile(r"\bd=([^;\s]+)")
 _DANGEROUS_ATTACHMENT_EXTENSIONS = {
     "exe", "scr", "bat", "cmd", "com", "pif", "vbs", "vbe", "js", "jse",
     "jar", "msi", "ps1", "psm1", "wsf", "hta", "cpl", "lnk", "gadget",
+    # Macro-enabled Office formats - a more common real-world malware
+    # vector than classic executables precisely because most mail
+    # providers already block .exe by default, while a macro-laced
+    # "invoice.docm" often still gets through.
+    "docm", "dotm", "xlsm", "xltm", "xlsb", "xlam", "pptm", "potm", "ppam",
 }
 _PLAUSIBLE_DECOY_EXTENSIONS = {"pdf", "docx", "doc", "xlsx", "xls", "jpg", "jpeg", "png", "txt", "csv", "ppt", "pptx"}
 # Declared-size threshold for flagging a zip bomb - checked from the

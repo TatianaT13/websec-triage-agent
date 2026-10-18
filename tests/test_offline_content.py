@@ -271,6 +271,24 @@ def test_dangerous_extension_is_flagged(tmp_path):
     assert parsed["attachments"][0]["dangerous_extension"] is True
 
 
+def test_macro_enabled_office_extension_is_flagged(tmp_path):
+    # .docm (and friends) are a more common real-world malware vector
+    # than classic executables, since most mail providers already block
+    # .exe by default - a macro-laced "invoice.docm" often still gets
+    # through.
+    path = _eml_with_attachment(tmp_path, filename="facture.docm")
+    parsed = oc.parse_eml_file(path)
+    assert parsed["attachments"][0]["dangerous_extension"] is True
+
+
+def test_plain_docx_is_not_flagged(tmp_path):
+    # Sanity check for the above: the equivalent macro-free format must
+    # stay unflagged, or every legitimate Word attachment would trip this.
+    path = _eml_with_attachment(tmp_path, filename="facture.docx")
+    parsed = oc.parse_eml_file(path)
+    assert parsed["attachments"][0]["dangerous_extension"] is False
+
+
 def test_double_extension_is_flagged(tmp_path):
     # Real disguise pattern: looks like a PDF at a glance, actually an exe.
     path = _eml_with_attachment(tmp_path, filename="facture.pdf.exe")

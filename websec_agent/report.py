@@ -8,7 +8,13 @@ import json
 from datetime import datetime, timezone
 
 
-def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool, check_urlscan: bool = False) -> dict:
+def _analyze_fetched(
+    requested_url: str,
+    fetched: dict,
+    check_virustotal: bool,
+    check_urlscan: bool = False,
+    resolve_shorteners: bool = False,
+) -> dict:
     """Shared by build_result() (live fetch) and build_result_from_html()
     (content you already have) - everything past "we have the HTML and
     the URL it's associated with" is identical either way."""
@@ -19,6 +25,10 @@ def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool, 
     structure = wa.analyze_structure(html, fetched["final_url"])
     iocs = wa.extract_iocs(html, fetched["final_url"])
     heuristic = wa.score_phishing(html, structure, iocs, fetched["final_url"])
+
+    shortener_resolutions = None
+    if resolve_shorteners and iocs["shortener_links"]:
+        shortener_resolutions = wa.resolve_shortener_links(iocs["shortener_links"])
 
     ml = None
     try:
@@ -63,11 +73,21 @@ def _analyze_fetched(requested_url: str, fetched: dict, check_virustotal: bool, 
         # Corroborating context only - never an input to combine_verdicts()
         # below, see urlscan_lookup.py's module docstring for why.
         "urlscan": urlscan_result,
+        # Same - shows where a shortener actually goes, never feeds the
+        # verdict itself (keeps score_phishing() a pure function of the
+        # page's own content, not of a second live fetch's outcome).
+        "shortener_resolutions": shortener_resolutions,
         "verdict": vd.combine_verdicts(heuristic, ml, domain_age_info, vt_result),
     }
 
 
-def build_result(url: str, render: bool = False, check_virustotal: bool = False, check_urlscan: bool = False) -> dict:
+def build_result(
+    url: str,
+    render: bool = False,
+    check_virustotal: bool = False,
+    check_urlscan: bool = False,
+    resolve_shorteners: bool = False,
+) -> dict:
     """Fetch + run the full pipeline (heuristic score, and the trained ML
     classifier when available), returning one result dict with a single
     combined verdict instead of two opinions the caller has to reconcile.
@@ -95,7 +115,13 @@ def build_result(url: str, render: bool = False, check_virustotal: bool = False,
     domain (free, no API key, no quota) - opt-in anyway, purely to keep
     the default path from making an extra external call. Corroborating
     context only (screenshot, hosting info) - see urlscan_lookup.py for
-    why it's never a verdict input the way VirusTotal is."""
+    why it's never a verdict input the way VirusTotal is.
+
+    resolve_shorteners=True follows any bit.ly/tinyurl.com/etc. links
+    found on the page to their real destination (see
+    web_analysis.resolve_shortener_links) - opt-in because it's a second
+    live fetch per shortened link found, up to
+    web_analysis.MAX_SHORTENER_RESOLUTIONS of them."""
     from . import web_analysis as wa
 
     auto_rendered = None
@@ -116,13 +142,17 @@ def build_result(url: str, render: bool = False, check_virustotal: bool = False,
             except (RuntimeError, wa.FetchError):
                 pass  # render extras missing, or rendering itself failed - keep the plain fetch
 
-    result = _analyze_fetched(url, fetched, check_virustotal, check_urlscan)
+    result = _analyze_fetched(url, fetched, check_virustotal, check_urlscan, resolve_shorteners)
     result["auto_rendered"] = auto_rendered
     return result
 
 
 def build_result_from_html(
-    html: str, url_hint: str, check_virustotal: bool = False, check_urlscan: bool = False
+    html: str,
+    url_hint: str,
+    check_virustotal: bool = False,
+    check_urlscan: bool = False,
+    resolve_shorteners: bool = False,
 ) -> dict:
     """Like build_result(), but for content you already have (pasted
     HTML, or extracted from an .eml via websec_agent.offline_content)
@@ -140,7 +170,7 @@ def build_result_from_html(
     content looks JS-rendered-empty, so result["auto_rendered"] is always
     None here - unlike build_result()."""
     fetched = {"final_url": url_hint, "status_code": None, "html": html}
-    result = _analyze_fetched(url_hint, fetched, check_virustotal, check_urlscan)
+    result = _analyze_fetched(url_hint, fetched, check_virustotal, check_urlscan, resolve_shorteners)
     result["auto_rendered"] = None
     return result
 

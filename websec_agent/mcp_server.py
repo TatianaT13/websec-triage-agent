@@ -29,8 +29,13 @@ from . import web_analysis as wa
     "context only (screenshot, hosting ASN/country, TLS cert age), NOT a "
     "second malicious/benign vote like VirusTotal: urlscan.io's own "
     "malicious-verdict field is gated behind a paid plan even to query, "
-    "so this never claims to replicate it.",
-    {"url": str, "check_virustotal": bool, "check_urlscan": bool},
+    "so this never claims to replicate it. Set resolve_shorteners=true to "
+    "follow any bit.ly/tinyurl.com/etc. links found on the page to their "
+    "real destination (result['shortener_resolutions']) instead of just "
+    "flagging that a shortener is present - a shortener hiding a "
+    "malicious domain is otherwise never actually examined. Informational "
+    "only, same as urlscan - never itself a verdict input.",
+    {"url": str, "check_virustotal": bool, "check_urlscan": bool, "resolve_shorteners": bool},
 )
 async def analyze_webpage(args):
     try:
@@ -40,6 +45,7 @@ async def analyze_webpage(args):
             False,
             args.get("check_virustotal", False),
             args.get("check_urlscan", False),
+            args.get("resolve_shorteners", False),
         )
     except wa.FetchError as exc:
         return {"content": [{"type": "text", "text": f"Fetch blocked or failed: {exc}"}], "is_error": True}
@@ -118,8 +124,10 @@ async def screenshot_webpage(args):
     "required, since the brand/domain-mismatch checks need a domain to "
     "compare against. check_urlscan=true adds existing-scan context from "
     "urlscan.io for url_hint's domain - see analyze_webpage's description "
-    "for what that does and doesn't mean.",
-    {"html": str, "url_hint": str, "check_virustotal": bool, "check_urlscan": bool},
+    "for what that does and doesn't mean. resolve_shorteners=true follows "
+    "any bit.ly/etc. links in the content to their real destination - see "
+    "analyze_webpage's description.",
+    {"html": str, "url_hint": str, "check_virustotal": bool, "check_urlscan": bool, "resolve_shorteners": bool},
 )
 async def analyze_html(args):
     result = await asyncio.to_thread(
@@ -128,6 +136,7 @@ async def analyze_html(args):
         args["url_hint"],
         args.get("check_virustotal", False),
         args.get("check_urlscan", False),
+        args.get("resolve_shorteners", False),
     )
     return {"content": [{"type": "text", "text": str(result)}]}
 

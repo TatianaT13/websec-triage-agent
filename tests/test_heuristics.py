@@ -222,3 +222,47 @@ def test_paas_subdomains_are_treated_as_distinct_sites():
     # subdomain is a different, unrelated site.
     assert wa._registrable_domain("wetransfer-smoky.vercel.app") == "wetransfer-smoky.vercel.app"
     assert wa._registrable_domain("other-tenant.vercel.app") == "other-tenant.vercel.app"
+
+
+# --- resolve_shortener_links: where a shortener actually goes ------------
+
+
+def test_resolve_shortener_links_reports_the_real_destination(monkeypatch):
+    monkeypatch.setattr(
+        wa, "fetch_html", lambda url: {"final_url": "https://evil-phish.example/login", "status_code": 200, "html": ""}
+    )
+    results = wa.resolve_shortener_links(["https://bit.ly/abc123"])
+    assert results == [
+        {
+            "short_url": "https://bit.ly/abc123",
+            "resolved_url": "https://evil-phish.example/login",
+            "resolved_domain": "evil-phish.example",
+            "error": None,
+        }
+    ]
+
+
+def test_resolve_shortener_links_reports_failure_without_raising(monkeypatch):
+    def raise_fetch_error(url):
+        raise wa.FetchError("too many redirects (>5)")
+
+    monkeypatch.setattr(wa, "fetch_html", raise_fetch_error)
+    results = wa.resolve_shortener_links(["https://bit.ly/dead"])
+    assert results == [
+        {"short_url": "https://bit.ly/dead", "resolved_url": None, "resolved_domain": None, "error": "too many redirects (>5)"}
+    ]
+
+
+def test_resolve_shortener_links_is_bounded(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        wa, "fetch_html", lambda url: calls.append(url) or {"final_url": url, "status_code": 200, "html": ""}
+    )
+    urls = [f"https://bit.ly/{i}" for i in range(10)]
+    results = wa.resolve_shortener_links(urls)
+    assert len(results) == wa.MAX_SHORTENER_RESOLUTIONS
+    assert len(calls) == wa.MAX_SHORTENER_RESOLUTIONS
+
+
+def test_resolve_shortener_links_empty_input_returns_empty_list():
+    assert wa.resolve_shortener_links([]) == []

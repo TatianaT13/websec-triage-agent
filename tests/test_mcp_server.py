@@ -29,25 +29,34 @@ def run(coro):
 def test_analyze_webpage_success_threads_args_and_returns_text(monkeypatch):
     captured = {}
 
-    def fake_build_result(url, rendered, check_vt, check_urlscan):
-        captured["args"] = (url, rendered, check_vt, check_urlscan)
+    def fake_build_result(url, rendered, check_vt, check_urlscan, resolve_shorteners):
+        captured["args"] = (url, rendered, check_vt, check_urlscan, resolve_shorteners)
         return {"verdict": {"label": "benign"}}
 
     monkeypatch.setattr(report, "build_result", fake_build_result)
-    result = run(mcp_server.analyze_webpage.handler({"url": "https://example.com", "check_virustotal": True}))
+    result = run(
+        mcp_server.analyze_webpage.handler(
+            {"url": "https://example.com", "check_virustotal": True, "resolve_shorteners": True}
+        )
+    )
 
-    assert captured["args"] == ("https://example.com", False, True, False)
+    assert captured["args"] == ("https://example.com", False, True, False, True)
     assert "benign" in result["content"][0]["text"]
     assert "is_error" not in result
 
 
-def test_analyze_webpage_defaults_virustotal_and_urlscan_to_false(monkeypatch):
+def test_analyze_webpage_defaults_optional_flags_to_false(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        report, "build_result", lambda url, rendered, check_vt, check_urlscan: captured.update(vt=check_vt, us=check_urlscan) or {}
+        report,
+        "build_result",
+        lambda url, rendered, check_vt, check_urlscan, resolve_shorteners: captured.update(
+            vt=check_vt, us=check_urlscan, rs=resolve_shorteners
+        )
+        or {},
     )
     run(mcp_server.analyze_webpage.handler({"url": "https://example.com"}))
-    assert captured == {"vt": False, "us": False}
+    assert captured == {"vt": False, "us": False, "rs": False}
 
 
 def test_analyze_webpage_fetch_error_is_reported_as_is_error(monkeypatch):
@@ -122,14 +131,21 @@ def test_screenshot_webpage_fetch_error_is_reported(monkeypatch):
 def test_analyze_html_threads_all_args(monkeypatch):
     captured = {}
 
-    def fake(html, url_hint, check_vt, check_urlscan):
-        captured.update(html=html, url_hint=url_hint, check_vt=check_vt, check_urlscan=check_urlscan)
+    def fake(html, url_hint, check_vt, check_urlscan, resolve_shorteners):
+        captured.update(
+            html=html, url_hint=url_hint, check_vt=check_vt, check_urlscan=check_urlscan, resolve_shorteners=resolve_shorteners
+        )
         return {"verdict": {"label": "phishing"}}
 
     monkeypatch.setattr(report, "build_result_from_html", fake)
     result = run(
         mcp_server.analyze_html.handler(
-            {"html": BENIGN_HTML, "url_hint": "https://totally-legit.example", "check_urlscan": True}
+            {
+                "html": BENIGN_HTML,
+                "url_hint": "https://totally-legit.example",
+                "check_urlscan": True,
+                "resolve_shorteners": True,
+            }
         )
     )
 
@@ -137,6 +153,7 @@ def test_analyze_html_threads_all_args(monkeypatch):
     assert captured["url_hint"] == "https://totally-legit.example"
     assert captured["check_vt"] is False
     assert captured["check_urlscan"] is True
+    assert captured["resolve_shorteners"] is True
     assert "phishing" in result["content"][0]["text"]
 
 

@@ -378,6 +378,37 @@ def extract_iocs(html: str, base_url: str) -> dict:
     }
 
 
+MAX_SHORTENER_RESOLUTIONS = 3
+
+
+def resolve_shortener_links(shortener_urls: list[str]) -> list[dict]:
+    """extract_iocs() only flags THAT a link is a shortener (bit.ly, ...),
+    never where it actually goes - a shortener hiding a malicious domain
+    would otherwise never get its real destination examined. Follows each
+    one through fetch_html()'s existing SSRF-guarded, DNS-pinned redirect
+    walk (reused directly, not reimplemented) rather than a bespoke
+    resolver. Informational only, never raises: a shortener that's dead
+    or blocks non-browser clients is reported as a failed resolution, not
+    a reason to break the rest of the pipeline. Bounded to the first
+    MAX_SHORTENER_RESOLUTIONS links so a page spamming dozens of
+    shortened links can't blow up analysis latency."""
+    results = []
+    for short_url in shortener_urls[:MAX_SHORTENER_RESOLUTIONS]:
+        try:
+            fetched = fetch_html(short_url)
+            results.append(
+                {
+                    "short_url": short_url,
+                    "resolved_url": fetched["final_url"],
+                    "resolved_domain": _domain_of(fetched["final_url"]),
+                    "error": None,
+                }
+            )
+        except FetchError as exc:
+            results.append({"short_url": short_url, "resolved_url": None, "resolved_domain": None, "error": str(exc)})
+    return results
+
+
 def score_phishing(html: str, structure: dict, iocs: dict, base_url: str) -> dict:
     reasons: list[str] = []
     score = 0
