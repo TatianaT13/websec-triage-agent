@@ -1,4 +1,4 @@
 {
-  "dataset_size": 1457,
-  "classifier_f1": "0.947"
+  "dataset_size": 1617,
+  "classifier_f1": "0.937"
 }
