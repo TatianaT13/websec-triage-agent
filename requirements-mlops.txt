@@ -3,7 +3,7 @@
 # and an unpickling version mismatch (e.g. a newer sklearn than training
 # time) warns now and may hard-break later. Bump this pin whenever
 # training/train.py is re-run with a different scikit-learn version.
-scikit-learn==1.7.2
+scikit-learn==1.9.1
 pandas==3.0.6
 joblib==1.6.0
 mlflow==3.17.0
