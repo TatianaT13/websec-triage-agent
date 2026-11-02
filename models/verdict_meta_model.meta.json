@@ -1,7 +1,7 @@
 {
-  "trained_at": "2026-10-26T12:32:19+00:00",
+  "trained_at": "2026-11-02T14:55:01+00:00",
   "dataset": "data/dataset.csv",
-  "n_samples": 1777,
+  "n_samples": 1937,
   "model_type": "gradient_boosting",
   "feature_names": [
     "heuristic_score",
@@ -10,41 +10,41 @@
     "domain_age_unknown"
   ],
   "metrics": {
-    "accuracy": 0.9325842696629213,
-    "precision": 0.9473684210526315,
-    "recall": 0.9124423963133641,
-    "f1": 0.9295774647887324,
-    "roc_auc": 0.9746644837901205
+    "accuracy": 0.9360824742268041,
+    "precision": 0.9439655172413793,
+    "recall": 0.9240506329113924,
+    "f1": 0.9339019189765458,
+    "roc_auc": 0.9822631686402613
   },
-  "cv_f1_mean": 0.9252451555437592,
-  "cv_f1_std": 0.032241405006063234,
+  "cv_f1_mean": 0.9230888878778014,
+  "cv_f1_std": 0.021913070091440046,
   "all_candidates": {
     "logistic_regression": {
-      "accuracy": 0.9168539325842696,
-      "precision": 0.9166666666666666,
-      "recall": 0.9124423963133641,
-      "f1": 0.9145496535796767,
-      "roc_auc": 0.9714508044304309,
-      "cv_f1_mean": 0.925773750824676,
-      "cv_f1_std": 0.027925982185527214
+      "accuracy": 0.9195876288659793,
+      "precision": 0.9230769230769231,
+      "recall": 0.9113924050632911,
+      "f1": 0.9171974522292994,
+      "roc_auc": 0.9743432693616443,
+      "cv_f1_mean": 0.9249351245348008,
+      "cv_f1_std": 0.025238601241658616
     },
     "gradient_boosting": {
-      "accuracy": 0.9325842696629213,
-      "precision": 0.9473684210526315,
-      "recall": 0.9124423963133641,
-      "f1": 0.9295774647887324,
-      "roc_auc": 0.9746644837901205,
-      "cv_f1_mean": 0.9252451555437592,
-      "cv_f1_std": 0.032241405006063234
+      "accuracy": 0.9360824742268041,
+      "precision": 0.9439655172413793,
+      "recall": 0.9240506329113924,
+      "f1": 0.9339019189765458,
+      "roc_auc": 0.9822631686402613,
+      "cv_f1_mean": 0.9230888878778014,
+      "cv_f1_std": 0.021913070091440046
     }
   },
-  "baseline_hand_coded_accuracy": 0.9325842696629213,
-  "baseline_hand_coded_f1": 0.9285714285714286,
+  "baseline_hand_coded_accuracy": 0.9257731958762887,
+  "baseline_hand_coded_f1": 0.9210526315789473,
   "feature_importances": {
-    "heuristic_score": 0.004934550800033612,
-    "ml_probability": 0.9435763812856388,
-    "domain_age_days": 0.04945573026513939,
-    "domain_age_unknown": 0.002033337649188263
+    "heuristic_score": 0.005429410047090252,
+    "ml_probability": 0.9364948905074657,
+    "domain_age_days": 0.05502043041909673,
+    "domain_age_unknown": 0.0030552690263473186
   },
   "promoted": true
 }
