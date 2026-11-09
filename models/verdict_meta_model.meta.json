@@ -1,7 +1,7 @@
 {
-  "trained_at": "2026-11-02T14:55:01+00:00",
+  "trained_at": "2026-11-09T15:14:43+00:00",
   "dataset": "data/dataset.csv",
-  "n_samples": 1937,
+  "n_samples": 2097,
   "model_type": "gradient_boosting",
   "feature_names": [
     "heuristic_score",
@@ -10,41 +10,41 @@
     "domain_age_unknown"
   ],
   "metrics": {
-    "accuracy": 0.9360824742268041,
-    "precision": 0.9439655172413793,
-    "recall": 0.9240506329113924,
-    "f1": 0.9339019189765458,
-    "roc_auc": 0.9822631686402613
+    "accuracy": 0.9333333333333333,
+    "precision": 0.93359375,
+    "recall": 0.9299610894941635,
+    "f1": 0.9317738791423001,
+    "roc_auc": 0.9749912886927231
   },
-  "cv_f1_mean": 0.9230888878778014,
-  "cv_f1_std": 0.021913070091440046,
+  "cv_f1_mean": 0.9258974931083017,
+  "cv_f1_std": 0.018435060583608612,
   "all_candidates": {
     "logistic_regression": {
-      "accuracy": 0.9195876288659793,
-      "precision": 0.9230769230769231,
-      "recall": 0.9113924050632911,
-      "f1": 0.9171974522292994,
-      "roc_auc": 0.9743432693616443,
-      "cv_f1_mean": 0.9249351245348008,
-      "cv_f1_std": 0.025238601241658616
+      "accuracy": 0.9104761904761904,
+      "precision": 0.91015625,
+      "recall": 0.9066147859922179,
+      "f1": 0.9083820662768031,
+      "roc_auc": 0.9693361983855044,
+      "cv_f1_mean": 0.9232385242308621,
+      "cv_f1_std": 0.022725657207205884
     },
     "gradient_boosting": {
-      "accuracy": 0.9360824742268041,
-      "precision": 0.9439655172413793,
-      "recall": 0.9240506329113924,
-      "f1": 0.9339019189765458,
-      "roc_auc": 0.9822631686402613,
-      "cv_f1_mean": 0.9230888878778014,
-      "cv_f1_std": 0.021913070091440046
+      "accuracy": 0.9333333333333333,
+      "precision": 0.93359375,
+      "recall": 0.9299610894941635,
+      "f1": 0.9317738791423001,
+      "roc_auc": 0.9749912886927231,
+      "cv_f1_mean": 0.9258974931083017,
+      "cv_f1_std": 0.018435060583608612
     }
   },
-  "baseline_hand_coded_accuracy": 0.9257731958762887,
-  "baseline_hand_coded_f1": 0.9210526315789473,
+  "baseline_hand_coded_accuracy": 0.9333333333333333,
+  "baseline_hand_coded_f1": 0.9292929292929293,
   "feature_importances": {
-    "heuristic_score": 0.005429410047090252,
-    "ml_probability": 0.9364948905074657,
-    "domain_age_days": 0.05502043041909673,
-    "domain_age_unknown": 0.0030552690263473186
+    "heuristic_score": 0.0033686847594597705,
+    "ml_probability": 0.9451378337565725,
+    "domain_age_days": 0.04877600014765485,
+    "domain_age_unknown": 0.002717481336312958
   },
   "promoted": true
 }
