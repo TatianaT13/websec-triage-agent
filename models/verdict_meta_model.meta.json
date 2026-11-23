@@ -1,7 +1,7 @@
 {
-  "trained_at": "2026-11-09T15:14:43+00:00",
+  "trained_at": "2026-11-23T17:29:45+00:00",
   "dataset": "data/dataset.csv",
-  "n_samples": 2097,
+  "n_samples": 2417,
   "model_type": "gradient_boosting",
   "feature_names": [
     "heuristic_score",
@@ -10,41 +10,41 @@
     "domain_age_unknown"
   ],
   "metrics": {
-    "accuracy": 0.9333333333333333,
-    "precision": 0.93359375,
-    "recall": 0.9299610894941635,
-    "f1": 0.9317738791423001,
-    "roc_auc": 0.9749912886927231
+    "accuracy": 0.9355371900826446,
+    "precision": 0.954225352112676,
+    "recall": 0.9124579124579124,
+    "f1": 0.9328743545611016,
+    "roc_auc": 0.9782729896366261
   },
-  "cv_f1_mean": 0.9258974931083017,
-  "cv_f1_std": 0.018435060583608612,
+  "cv_f1_mean": 0.93167084837966,
+  "cv_f1_std": 0.014949487985006329,
   "all_candidates": {
     "logistic_regression": {
-      "accuracy": 0.9104761904761904,
-      "precision": 0.91015625,
-      "recall": 0.9066147859922179,
-      "f1": 0.9083820662768031,
-      "roc_auc": 0.9693361983855044,
-      "cv_f1_mean": 0.9232385242308621,
-      "cv_f1_std": 0.022725657207205884
+      "accuracy": 0.9272727272727272,
+      "precision": 0.9377162629757786,
+      "recall": 0.9124579124579124,
+      "f1": 0.9249146757679181,
+      "roc_auc": 0.971205562114653,
+      "cv_f1_mean": 0.9271873190395343,
+      "cv_f1_std": 0.018615474788587317
     },
     "gradient_boosting": {
-      "accuracy": 0.9333333333333333,
-      "precision": 0.93359375,
-      "recall": 0.9299610894941635,
-      "f1": 0.9317738791423001,
-      "roc_auc": 0.9749912886927231,
-      "cv_f1_mean": 0.9258974931083017,
-      "cv_f1_std": 0.018435060583608612
+      "accuracy": 0.9355371900826446,
+      "precision": 0.954225352112676,
+      "recall": 0.9124579124579124,
+      "f1": 0.9328743545611016,
+      "roc_auc": 0.9782729896366261,
+      "cv_f1_mean": 0.93167084837966,
+      "cv_f1_std": 0.014949487985006329
     }
   },
-  "baseline_hand_coded_accuracy": 0.9333333333333333,
-  "baseline_hand_coded_f1": 0.9292929292929293,
+  "baseline_hand_coded_accuracy": 0.9272727272727272,
+  "baseline_hand_coded_f1": 0.9219858156028369,
   "feature_importances": {
-    "heuristic_score": 0.0033686847594597705,
-    "ml_probability": 0.9451378337565725,
-    "domain_age_days": 0.04877600014765485,
-    "domain_age_unknown": 0.002717481336312958
+    "heuristic_score": 0.00523942783933607,
+    "ml_probability": 0.944336793220576,
+    "domain_age_days": 0.048695323239515406,
+    "domain_age_unknown": 0.0017284557005724259
   },
   "promoted": true
 }
